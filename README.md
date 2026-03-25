@@ -1,6 +1,6 @@
 # ThumbHash for Craft CMS
 
-Automatic [ThumbHash](https://evanw.github.io/thumbhash/) placeholder generation for Craft CMS 5 image assets.
+Automatic [ThumbHash](https://evanw.github.io/thumbhash/) placeholder generation for Craft CMS image assets.
 
 ## What is ThumbHash?
 
@@ -8,7 +8,7 @@ ThumbHash is a compact representation of an image placeholder (~28 bytes). The h
 
 ## Requirements
 
-- Craft CMS 5.3.0+
+- Craft CMS 4.0+ or 5.0+
 - PHP 8.2+
 - Imagick extension (recommended) or GD
 
@@ -27,7 +27,7 @@ php craft plugin/install thumbhash
 {# Output the decoder script (once per page, ideally in <head>) #}
 {{ thumbhashScript() }}
 
-{# For each image, use data-thumbhash and data-src #}
+{# For each image, use data-thumbhash with your preferred lazy loading approach #}
 {% set hash = thumbhash(asset) %}
 {% if hash %}
   <img data-thumbhash="{{ hash }}" data-src="{{ asset.url }}" alt="{{ asset.title }}" width="{{ asset.width }}" height="{{ asset.height }}" />
@@ -36,11 +36,13 @@ php craft plugin/install thumbhash
 {% endif %}
 ```
 
+The decoder script will decode each hash to a tiny PNG data URL and set it as the `src` on the element. Your lazy loading library (lazysizes, lozad, etc.) handles swapping `data-src` → `src` when the element enters the viewport.
+
 ### How It Works
 
 1. **On asset save**: A queue job generates the ThumbHash from a resized copy (≤100×100px) of the image
 2. **In templates**: `thumbhash(asset)` returns the base64 hash string (~28 bytes)
-3. **In the browser**: The decoder JS finds all `[data-thumbhash]` elements, decodes each hash to a tiny PNG data URL placeholder, then lazy-loads the real image from `data-src`
+3. **In the browser**: The decoder JS finds all `[data-thumbhash]` elements, decodes each hash to a tiny PNG data URL, and sets it as `src`
 
 ### Template Functions
 
@@ -48,6 +50,15 @@ php craft plugin/install thumbhash
 |---|---|
 | `thumbhash(asset)` | Returns the base64 thumbhash string for an asset, or `null` |
 | `thumbhashScript()` | Outputs the `<script>` tag for the client-side decoder |
+
+### JavaScript API
+
+The decoder exposes a global API for manual use:
+
+```js
+// Decode a base64 thumbhash to a data URL
+var dataUrl = window.thumbhash.toDataURL('BASE64_HASH');
+```
 
 ## Backfilling Existing Assets
 
@@ -65,9 +76,9 @@ php craft thumbhash/generate --volume=images
 
 The included JS decoder:
 - Finds all `[data-thumbhash]` elements on the page
-- Decodes each base64 hash to a tiny PNG data URL and sets it as `src`
-- Uses `IntersectionObserver` to lazy-load the real image from `data-src`
+- Decodes each base64 hash to a tiny PNG data URL and sets it as `src` (LQIP placeholder)
 - Watches for dynamically added elements via `MutationObserver`
+- Does **not** include lazy loading — bring your own (lazysizes, lozad, native `loading="lazy"`, etc.)
 
 ## Notes
 
