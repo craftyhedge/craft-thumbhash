@@ -26,6 +26,7 @@
 
     // ---- thumbHashToRGBA (from evanw/thumbhash, MIT) ----
     function thumbHashToRGBA(hash) {
+        if (!hash || hash.length < 5) throw new Error('Invalid ThumbHash');
         var PI = Math.PI, min = Math.min, max = Math.max, cos = Math.cos, round = Math.round;
 
         // Read the constants
@@ -72,17 +73,20 @@
         var h = round(ratio > 1 ? 32 / ratio : 32);
         var rgba = new Uint8Array(w * h * 4);
         var fx = [], fy = [];
+        var n = max(lx, hasAlpha ? 5 : 3);
+        var n2 = max(ly, hasAlpha ? 5 : 3);
 
         for (var y = 0, i = 0; y < h; y++) {
+            // Precompute fy once per row (depends only on y)
+            for (var cy = 0; cy < n2; cy++) {
+                fy[cy] = cos(PI / h * (y + 0.5) * cy);
+            }
             for (var x = 0; x < w; x++, i += 4) {
                 var l = l_dc, p = p_dc, q = q_dc, a = a_dc;
 
-                // Precompute the coefficients
-                for (var cx = 0, n = max(lx, hasAlpha ? 5 : 3); cx < n; cx++) {
+                // Precompute fx per column
+                for (var cx = 0; cx < n; cx++) {
                     fx[cx] = cos(PI / w * (x + 0.5) * cx);
-                }
-                for (var cy = 0, n2 = max(ly, hasAlpha ? 5 : 3); cy < n2; cy++) {
-                    fy[cy] = cos(PI / h * (y + 0.5) * cy);
                 }
 
                 // Decode L
@@ -196,11 +200,21 @@
         return bytes;
     }
 
+    // ---- Decode cache (avoids re-decoding same hash on multiple elements) ----
+    var decodeCache = {};
+
+    function cachedToDataURL(base64Hash) {
+        if (decodeCache[base64Hash]) return decodeCache[base64Hash];
+        var hashBytes = base64ToUint8Array(base64Hash);
+        var dataUrl = thumbHashToDataURL(hashBytes);
+        decodeCache[base64Hash] = dataUrl;
+        return dataUrl;
+    }
+
     // ---- Public API ----
     window.thumbhash = {
         toDataURL: function (base64Hash) {
-            var hashBytes = base64ToUint8Array(base64Hash);
-            return thumbHashToDataURL(hashBytes);
+            return cachedToDataURL(base64Hash);
         },
     };
 
@@ -262,13 +276,6 @@
     }
 
     // ---- Boot ----
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', function () {
-            initAll();
-            observeDOM();
-        });
-    } else {
-        initAll();
-        observeDOM();
-    }
+    initAll();
+    observeDOM();
 })();
