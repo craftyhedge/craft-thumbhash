@@ -2,7 +2,7 @@
     "name": "craftyhedge/craft-thumbhash",
     "description": "Automatic ThumbHash placeholder generation for Craft CMS assets",
     "type": "craft-plugin",
-    "license": "MIT",
+    "license": "proprietary",
     "require": {
         "php": "^8.2",
         "craftcms/cms": "^5.0.0||^4.0.0",
@@ -16,7 +16,7 @@
     "extra": {
         "handle": "thumbhash",
         "name": "ThumbHash",
-        "developer": "Martin Herweg",
+        "developer": "Crafty Hedge",
         "documentationUrl": "https://github.com/craftyhedge/craft-thumbhash",
         "class": "craftyhedge\\craftthumbhash\\Plugin",
         "schemaVersion": "1.0.0"

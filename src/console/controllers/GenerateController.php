@@ -37,6 +37,13 @@ class GenerateController extends Controller
 
         if ($this->volume) {
             $query->volume($this->volume);
+        } else {
+            $settings = Plugin::getInstance()->getSettings();
+            $volumes = $settings->volumes;
+
+            if ($volumes !== null && $volumes !== '*') {
+                $query->volume((array) $volumes);
+            }
         }
 
         $total = $query->count();
@@ -55,10 +62,11 @@ class GenerateController extends Controller
 
         foreach ($query->each() as $asset) {
             /** @var Asset $asset */
+            $done++;
+
             $extension = strtolower($asset->getExtension());
             if ($extension === 'svg') {
                 $skipped++;
-                $done++;
                 continue;
             }
 
@@ -71,8 +79,6 @@ class GenerateController extends Controller
                 $errors++;
                 $this->stderr("  [{$done}/{$total}] #{$asset->id} {$asset->filename} — failed\n");
             }
-
-            $done++;
         }
 
         $generated = $done - $skipped - $errors;

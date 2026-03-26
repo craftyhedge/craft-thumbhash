@@ -78,7 +78,13 @@ class ThumbhashService extends Component
         }
 
         $record->hash = $hash;
-        $record->save();
+
+        if (!$record->save()) {
+            Craft::error(
+                'ThumbHash: Failed to save hash for asset ' . $assetId . ': ' . implode(', ', $record->getFirstErrors()),
+                __METHOD__,
+            );
+        }
     }
 
     /**
