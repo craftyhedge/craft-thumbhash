@@ -8,7 +8,8 @@ use craftyhedge\craftthumbhash\db\Table;
 /**
  * @property int $id
  * @property int $assetId
- * @property string $hash
+ * @property string|null $hash
+ * @property string|null $dataUrl
  */
 class ThumbhashRecord extends ActiveRecord
 {

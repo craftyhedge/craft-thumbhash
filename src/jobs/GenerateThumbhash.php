@@ -13,6 +13,8 @@ class GenerateThumbhash extends BaseJob
 
     public function execute($queue): void
     {
+        $this->setProgress($queue, 0, "ThumbHash: Preparing asset {$this->assetId}");
+
         $asset = Asset::find()->id($this->assetId)->one();
 
         if (!$asset) {
@@ -24,15 +26,19 @@ class GenerateThumbhash extends BaseJob
         }
 
         $service = Plugin::getInstance()->thumbhash;
+
         $hash = $service->generateHash($asset);
 
         if ($hash !== null) {
-            $service->saveHash($this->assetId, $hash);
+            $dataUrl = $service->hashToDataUrl($hash);
+            $service->saveHash($this->assetId, $hash, $dataUrl);
         }
+
+        $this->setProgress($queue, 1, "ThumbHash: Completed asset {$this->assetId}");
     }
 
     protected function defaultDescription(): ?string
     {
-        return "Generating ThumbHash for asset {$this->assetId}";
+        return "ThumbHash: Generating asset {$this->assetId}";
     }
 }

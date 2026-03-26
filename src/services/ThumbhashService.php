@@ -11,6 +11,10 @@ use yii\base\Component;
 class ThumbhashService extends Component
 {
     /**
+     * In-memory cache for data URLs within the same request.
+     */
+    private array $dataUrlCache = [];
+    /**
      * Generate a ThumbHash string from an asset image.
      * Returns null if the asset is not a supported image.
      */
@@ -66,9 +70,9 @@ class ThumbhashService extends Component
     }
 
     /**
-     * Save (upsert) a thumbhash for an asset.
+     * Save (upsert) a thumbhash and optional data URL for an asset.
      */
-    public function saveHash(int $assetId, string $hash): void
+    public function saveHash(int $assetId, ?string $hash, ?string $dataUrl = null): void
     {
         $record = ThumbhashRecord::findOne(['assetId' => $assetId]);
 
@@ -78,6 +82,7 @@ class ThumbhashService extends Component
         }
 
         $record->hash = $hash;
+        $record->dataUrl = $dataUrl;
 
         if (!$record->save()) {
             Craft::error(
@@ -95,6 +100,54 @@ class ThumbhashService extends Component
         $record = ThumbhashRecord::findOne(['assetId' => $assetId]);
 
         return $record?->hash;
+    }
+
+    /**
+     * Get the stored or decoded PNG data URL for an asset.
+     * Returns the pre-computed value from DB if available, otherwise decodes on the fly.
+     */
+    public function getDataUrl(int $assetId): ?string
+    {
+        if (isset($this->dataUrlCache[$assetId])) {
+            return $this->dataUrlCache[$assetId];
+        }
+
+        $record = ThumbhashRecord::findOne(['assetId' => $assetId]);
+
+        if (!$record) {
+            return null;
+        }
+
+        // Prefer pre-computed data URL from DB
+        if ($record->dataUrl) {
+            $this->dataUrlCache[$assetId] = $record->dataUrl;
+            return $record->dataUrl;
+        }
+
+        // Fall back to runtime decode from hash
+        if (!$record->hash) {
+            return null;
+        }
+
+        try {
+            $dataUrl = $this->hashToDataUrl($record->hash);
+            $this->dataUrlCache[$assetId] = $dataUrl;
+
+            return $dataUrl;
+        } catch (\Throwable $e) {
+            Craft::error("ThumbHash: Error decoding hash for asset {$assetId}: {$e->getMessage()}", __METHOD__);
+            return null;
+        }
+    }
+
+    /**
+     * Decode a base64 thumbhash string to a PNG data URL.
+     */
+    public function hashToDataUrl(string $hash): string
+    {
+        $hashArray = Thumbhash::convertStringToHash($hash);
+
+        return Thumbhash::toDataURL($hashArray);
     }
 
     /**

@@ -73,7 +73,8 @@ class GenerateController extends Controller
             $hash = $service->generateHash($asset);
 
             if ($hash !== null) {
-                $service->saveHash($asset->id, $hash);
+                $dataUrl = $service->hashToDataUrl($hash);
+                $service->saveHash($asset->id, $hash, $dataUrl);
                 $this->stdout("  [{$done}/{$total}] #{$asset->id} {$asset->filename} ✓\n");
             } else {
                 $errors++;

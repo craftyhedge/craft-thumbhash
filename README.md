@@ -8,7 +8,7 @@ ThumbHash is a compact representation of an image placeholder (~28 bytes). The h
 
 ## Requirements
 
-- Craft CMS 4.0+ or 5.0+
+- Craft CMS 4.4+ or 5.0+
 - PHP 8.2+
 - Imagick extension (recommended) or GD
 
@@ -100,11 +100,24 @@ In this example, there are a few key things happening:
 2. **In templates**: `thumbhash(asset)` returns the base64 hash string (~28 bytes)
 3. **In the browser**: The decoder JS finds all `[data-thumbhash]` elements, decodes each hash to a tiny PNG data URL, and sets it as `src`
 
+### Inline Mode (No JavaScript)
+
+If you prefer to skip the JS decoder entirely, use `thumbhashDataUrl()` to inline the placeholder directly:
+
+```twig
+{% set placeholder = thumbhashDataUrl(asset) %}
+
+<img src="{{ placeholder }}" data-src="{{ asset.url }}" alt="{{ asset.title }}" width="{{ asset.width }}" height="{{ asset.height }}" />
+```
+
+This adds ~300 bytes per image to your HTML (vs ~40 bytes for the hash attribute), but placeholders are visible on first paint with zero JavaScript. The data URL is pre-computed and stored in the database alongside the hash — no runtime decode cost.
+
 ### Template Functions
 
 | Function | Description |
 |---|---|
 | `thumbhash(asset)` | Returns the base64 thumbhash string for an asset, or `null` |
+| `thumbhashDataUrl(asset)` | Returns the thumbhash decoded as a PNG data URL, or `null` |
 | `thumbhashScript()` | Registers the client-side decoder asset bundle |
 
 ### JavaScript API
@@ -129,6 +142,14 @@ return [
 
     // Or restrict generation to specific volumes
     // 'volumes' => ['images', 'hero'],
+
+    // Generate and store the base64 thumbhash string (~28 bytes per asset).
+    // Used with the client-side JS decoder. Default: true
+    // 'generateHash' => true,
+
+    // Generate and store the decoded PNG data URL (~300 bytes per asset).
+    // Used for inline placeholders without JavaScript. Default: false
+    // 'generateDataUrl' => false,
 ];
 ```
 

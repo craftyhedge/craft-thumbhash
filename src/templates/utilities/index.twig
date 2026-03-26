@@ -1,0 +1,199 @@
+{% set utilityAction = 'thumbhash/utilities/queue-generate' %}
+{% set statusAction = 'thumbhash/utilities/job-status' %}
+
+<form id="thumbhash-generator" class="utility" method="post" accept-charset="UTF-8">
+    {{ csrfInput() }}
+
+    <h2 class="first">{{ 'ThumbHash Generation'|t('thumbhash') }}</h2>
+    <p>{{ 'Queue ThumbHash generation for all eligible image assets and track overall processing progress.'|t('thumbhash') }}</p>
+
+    <div id="thumbhash-progress-wrapper" class="hidden" style="margin-bottom: var(--l); max-width: 400px;">
+        <div id="thumbhash-progress-bar"></div>
+        <div class="light" style="margin-top: var(--xs);">
+            <span id="thumbhash-progress-processed">0</span>
+            /
+            <span id="thumbhash-progress-total">0</span>
+        </div>
+    </div>
+
+    <div class="buttons">
+        <button type="submit" class="btn submit">{{ 'Process Images'|t('thumbhash') }}</button>
+        <div class="utility-status"></div>
+    </div>
+</form>
+
+{% js %}
+(() => {
+    const $form = $('#thumbhash-generator');
+    const $submitButton = $form.find('button.submit:last');
+    const $status = $form.find('.utility-status');
+    const $progressWrapper = $('#thumbhash-progress-wrapper');
+    const $processed = $('#thumbhash-progress-processed');
+    const $total = $('#thumbhash-progress-total');
+
+    const queueAction = '{{ utilityAction|e('js') }}';
+    const statusAction = '{{ statusAction|e('js') }}';
+
+    const progressBar = new Craft.ProgressBar($('#thumbhash-progress-bar'), false, {
+        announceProgress: false,
+    });
+
+    let runTotal = 0;
+    let runFailed = 0;
+    let pollTimer = null;
+    let pollRequestActive = false;
+
+    const setButtonEnabled = (enabled) => {
+        if (enabled) {
+            $submitButton.removeClass('disabled');
+            $submitButton.prop('disabled', false);
+            return;
+        }
+
+        $submitButton.addClass('disabled');
+        $submitButton.prop('disabled', true);
+    };
+
+    const updateProgress = (processedCount, totalCount) => {
+        const safeTotal = Math.max(totalCount, 1);
+
+        progressBar.setItemCount(safeTotal);
+        progressBar.setProcessedItemCount(Math.min(processedCount, safeTotal));
+        progressBar.updateProgressBar();
+        progressBar.showProgressBar();
+
+        $processed.text(String(Math.min(processedCount, totalCount)));
+        $total.text(String(totalCount));
+    };
+
+    const stopPolling = () => {
+        if (!pollTimer) {
+            return;
+        }
+
+        clearInterval(pollTimer);
+        pollTimer = null;
+    };
+
+    const startPolling = () => {
+        stopPolling();
+
+        pollTimer = setInterval(async () => {
+            if (pollRequestActive) {
+                return;
+            }
+
+            try {
+                pollRequestActive = true;
+
+                const response = await Craft.sendActionRequest('GET', statusAction, {
+                    data: { _: Date.now() },
+                });
+                const run = response.data?.run || {};
+                const hasRun = Boolean(run.hasRun);
+                runTotal = Number(run.total ?? 0);
+                runFailed = Number(run.failed ?? 0);
+                const processedCount = Number(run.processed ?? 0);
+
+                updateProgress(processedCount, runTotal);
+
+                const runComplete = runTotal > 0 && processedCount >= runTotal;
+                if (!hasRun || runComplete) {
+                    stopPolling();
+                    setButtonEnabled(true);
+
+                    if (runFailed > 0) {
+                        $status.text(Craft.t('thumbhash', 'Finished with {count, number} failed job(s).', { count: runFailed }));
+                    } else {
+                        $status.text(Craft.t('thumbhash', 'Processing complete.'));
+                    }
+                }
+            } catch (error) {
+                stopPolling();
+                setButtonEnabled(true);
+                $status.text(Craft.t('thumbhash', 'Could not refresh progress.'));
+            } finally {
+                pollRequestActive = false;
+            }
+        }, 1500);
+    };
+
+    $form.on('submit', async (ev) => {
+        ev.preventDefault();
+
+        if ($submitButton.hasClass('disabled')) {
+            return false;
+        }
+
+        setButtonEnabled(false);
+        $status.text(Craft.t('thumbhash', 'Queueing jobs...'));
+
+        try {
+            const response = await Craft.sendActionRequest('POST', queueAction);
+            const isExistingRun = Boolean(response.data?.existingRun);
+
+            runTotal = Number(response.data?.queued || 0);
+            runFailed = 0;
+
+            if (isExistingRun) {
+                $progressWrapper.removeClass('hidden');
+                $status.text(Craft.t('thumbhash', 'Resuming processing...'));
+                startPolling();
+                return false;
+            }
+
+            if (runTotal === 0) {
+                $progressWrapper.addClass('hidden');
+                $status.text(Craft.t('thumbhash', 'No eligible images found.'));
+                setButtonEnabled(true);
+                return false;
+            }
+
+            $progressWrapper.removeClass('hidden');
+            updateProgress(0, runTotal);
+            $status.text(Craft.t('thumbhash', 'Processing images...'));
+
+            startPolling();
+        } catch (error) {
+            setButtonEnabled(true);
+            $status.text(Craft.t('thumbhash', 'Could not queue jobs.'));
+        }
+
+        return false;
+    });
+
+    const resumeFromServer = async () => {
+        try {
+            const response = await Craft.sendActionRequest('GET', statusAction, {
+                data: { _: Date.now() },
+            });
+            const run = response.data?.run || {};
+            const hasRun = Boolean(run.hasRun);
+
+            if (!hasRun) {
+                return;
+            }
+
+            runTotal = Number(run.total || 0);
+            runFailed = Number(run.failed || 0);
+
+            if (runTotal <= 0) {
+                return;
+            }
+
+            $progressWrapper.removeClass('hidden');
+            updateProgress(Number(run.processed || 0), runTotal);
+            $status.text(Craft.t('thumbhash', 'Resuming processing...'));
+            setButtonEnabled(false);
+            startPolling();
+        } catch (error) {
+            // Ignore resume errors; user can start a new run manually.
+        }
+    };
+
+    resumeFromServer();
+
+    window.addEventListener('beforeunload', stopPolling);
+    window.addEventListener('pagehide', stopPolling);
+})();
+{% endjs %}

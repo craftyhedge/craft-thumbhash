@@ -8,12 +8,15 @@ use craft\base\Model;
 use craft\base\Plugin as BasePlugin;
 use craft\elements\Asset;
 use craft\events\ModelEvent;
+use craft\events\RegisterComponentTypesEvent;
 use craft\events\ReplaceAssetEvent;
 use craft\services\Assets;
+use craft\services\Utilities;
 use craftyhedge\craftthumbhash\jobs\GenerateThumbhash;
 use craftyhedge\craftthumbhash\models\Settings;
 use craftyhedge\craftthumbhash\services\ThumbhashService;
 use craftyhedge\craftthumbhash\twig\Extension;
+use craftyhedge\craftthumbhash\utilities\ThumbhashUtility;
 use yii\base\Event;
 
 /**
@@ -45,6 +48,20 @@ class Plugin extends BasePlugin
 
     private function registerEventListeners(): void
     {
+        $registerUtilitiesEvent = defined(Utilities::class . '::EVENT_REGISTER_UTILITIES')
+            ? Utilities::EVENT_REGISTER_UTILITIES
+            : (defined(Utilities::class . '::EVENT_REGISTER_UTILITY_TYPES')
+                ? Utilities::EVENT_REGISTER_UTILITY_TYPES
+                : 'registerUtilityTypes');
+
+        Event::on(
+            Utilities::class,
+            $registerUtilitiesEvent,
+            function(RegisterComponentTypesEvent $event) {
+                $event->types[] = ThumbhashUtility::class;
+            },
+        );
+
         // Generate thumbhash when a new image asset is created
         Event::on(
             Asset::class,

@@ -15,6 +15,7 @@ class Extension extends AbstractExtension
     {
         return [
             new TwigFunction('thumbhash', [$this, 'getThumbhash']),
+            new TwigFunction('thumbhashDataUrl', [$this, 'getThumbhashDataUrl']),
             new TwigFunction('thumbhashScript', [$this, 'getThumbhashScript'], [
                 'is_safe' => ['html'],
             ]),
@@ -31,6 +32,18 @@ class Extension extends AbstractExtension
         }
 
         return Plugin::getInstance()->thumbhash->getHash($asset->id);
+    }
+
+    /**
+     * Returns the thumbhash decoded as a PNG data URL for an asset, or null.
+     */
+    public function getThumbhashDataUrl(?Asset $asset): ?string
+    {
+        if (!$asset) {
+            return null;
+        }
+
+        return Plugin::getInstance()->thumbhash->getDataUrl($asset->id);
     }
 
     /**

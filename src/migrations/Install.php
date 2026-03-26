@@ -12,7 +12,8 @@ class Install extends Migration
         $this->createTable(Table::THUMBHASHES, [
             'id' => $this->primaryKey(),
             'assetId' => $this->integer()->notNull(),
-            'hash' => $this->string(255)->notNull(),
+            'hash' => $this->string(255)->null(),
+            'dataUrl' => $this->text()->null(),
             'dateCreated' => $this->dateTime()->notNull(),
             'dateUpdated' => $this->dateTime()->notNull(),
             'uid' => $this->uid(),
