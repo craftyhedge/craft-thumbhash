@@ -147,21 +147,6 @@ var dataUrl = window.thumbhash.toDataURL('BASE64_HASH');
 var backgroundImage = window.thumbhash.toBackgroundImage('BASE64_HASH');
 ```
 
-To override the auto-applied background styles, set `backgroundPlaceholderStyles` in `config/thumbhash.php`:
-
-```php
-<?php
-
-return [
-    'backgroundPlaceholderStyles' => [
-        'backgroundRepeat' => 'no-repeat',
-        'backgroundSize' => 'cover',
-        'backgroundPosition' => 'top center',
-    ],
-];
-```
-
-Set it to an empty array if you want `data-thumbhash-bg` to set only `background-image` and leave all other background styles alone.
 
 ## Configuration
 
