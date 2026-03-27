@@ -1,16 +1,15 @@
 # ThumbHash for Craft CMS
 
-Automatic [ThumbHash](https://evanw.github.io/thumbhash/) placeholder generation for Craft CMS image assets.
+Automatic thumbhash placeholder generation for Craft CMS image assets.
 
 ## What is ThumbHash?
 
-ThumbHash is a compact image placeholder.
+### Frontend
 
-- For the lightest HTML payload, use the base64 hash string with the included client-side JS decoder. Recommended.
-- For zero-JavaScript placeholders, use the pre-decoded PNG data URL. This typically adds around ~1KB per image to the HTML, depending on dimensions and content.
-- PNG data URLs are often highly compressible with gzip or Brotli.
-- The JS decoder is typically very fast for small hashes, and because the script is deferred it does not block initial HTML parsing. Decoding still runs on the main thread, so total cost scales with the number of placeholders.
+ThumbHash is a compact image placeholder with two implementation approaches:
 
+- For the lightest HTML payload, use the base64 hash string with the included client-side JS decoder.
+- For zero-JavaScript placeholders, use the pre-decoded PNG data URL. No network requests or JS decoding.
 
 <table>
     <tr>
@@ -19,11 +18,24 @@ ThumbHash is a compact image placeholder.
     </tr>
 </table>
 
+### Backend
+- Triggers a transform for a 100×100px thumbnail of the original image and encodes it to a compact base64 hash string (~28 bytes) using the ThumbHash algorithm.
+- Decodes the hash to a PNG data URL and stores it in the database for inline use without JavaScript.
+- ThumbHash generation is performed asynchronously in a queue job to avoid blocking the request thread.
+- Placeholders are generated on new uploads and file replacements, with a CLI command for backfilling existing assets.
+
+### JS Decoder vs. Inline Data URLs
+
+- The JS decoder is very fast. On desktop-class runtimes, decoding a hash to a data URL is typically well under 1ms; mobile performance varies by device.
+- The base64 hash string is around ~28 bytes, while the decoded PNG data URL is typically around ~0.8-2KB per image, depending on the image content and compression settings. Gzip/Brotli compression can further reduce the data URL size when served from your server.
+
 ## Requirements
 
 - Craft CMS 5.0+
 - PHP 8.2+
 - Imagick extension (recommended) or GD for fallback (note: GD's alpha channel support is limited to 1-bit transparency, so results may be less smooth)
+
+## Recommendations
 - External transform service recommended for best performance (e.g. Imgix, Cloudflare Images)
 
 ## Installation
