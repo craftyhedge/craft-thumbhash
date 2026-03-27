@@ -1,20 +1,13 @@
 {% set utilityAction = 'thumbhash/utilities/queue-generate' %}
 {% set statusAction = 'thumbhash/utilities/job-status' %}
+{% set rowsAction = 'thumbhash/utilities/grid-rows' %}
+{% set initialRows = initialRows ?? [] %}
 
 <form id="thumbhash-generator" class="utility" method="post" accept-charset="UTF-8">
     {{ csrfInput() }}
 
     <h2 class="first">{{ 'ThumbHash Generation'|t('thumbhash') }}</h2>
-    <p>{{ 'Queue ThumbHash generation for all eligible image assets and track overall processing progress.'|t('thumbhash') }}</p>
-
-    <div id="thumbhash-progress-wrapper" class="hidden" style="margin-bottom: var(--l); max-width: 400px;">
-        <div id="thumbhash-progress-bar"></div>
-        <div class="light" style="margin-top: var(--xs);">
-            <span id="thumbhash-progress-processed">0</span>
-            /
-            <span id="thumbhash-progress-total">0</span>
-        </div>
-    </div>
+    <p>{{ 'Queue ThumbHash generation for all eligible image assets.'|t('thumbhash') }}</p>
 
     <div class="buttons">
         <button type="submit" class="btn submit">{{ 'Process Images'|t('thumbhash') }}</button>
@@ -22,26 +15,165 @@
     </div>
 </form>
 
+<div class="pane" style="margin-top: var(--xl);">
+    {% set totalImages = initialRows|length %}
+    {% set processedPngs = 0 %}
+    {% for row in initialRows %}
+        {% if row.dataUrl %}
+            {% set processedPngs = processedPngs + 1 %}
+        {% endif %}
+    {% endfor %}
+
+    <p class="light" style="margin-top: 0; margin-bottom: var(--s);">
+        {{ 'Processed PNGs:'|t('thumbhash') }}
+        <span id="thumbhash-grid-processed">{{ processedPngs }}</span>
+        {{ 'of'|t('thumbhash') }}
+        <span id="thumbhash-grid-total">{{ totalImages }}</span>
+        {{ 'images.'|t('thumbhash') }}
+    </p>
+
+    <div id="thumbhash-png-grid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)); gap: 6px;">
+        {% for row in initialRows %}
+            {% if row.editUrl %}
+                <a href="{{ row.editUrl }}" class="thumbhash-png-item" data-asset-id="{{ row.assetId }}" title="{{ row.name }}" style="display:block; width: 100%; aspect-ratio: 1 / 1;">
+                    {% if row.dataUrl %}
+                        <img src="{{ row.dataUrl }}" alt="{{ row.name }}" loading="lazy" style="display:block; width:100%; height:100%; object-fit:cover; border-radius:4px;" />
+                    {% else %}
+                        <span aria-hidden="true" style="display:block; width:100%; height:100%; border-radius:4px; border:1px dashed var(--hairlineColor); background: color-mix(in srgb, var(--gray-100) 70%, transparent);"></span>
+                    {% endif %}
+                </a>
+            {% else %}
+                <div class="thumbhash-png-item" data-asset-id="{{ row.assetId }}" title="{{ row.name }}" style="display:block; width: 100%; aspect-ratio: 1 / 1;">
+                    {% if row.dataUrl %}
+                        <img src="{{ row.dataUrl }}" alt="{{ row.name }}" loading="lazy" style="display:block; width:100%; height:100%; object-fit:cover; border-radius:4px;" />
+                    {% else %}
+                        <span aria-hidden="true" style="display:block; width:100%; height:100%; border-radius:4px; border:1px dashed var(--hairlineColor); background: color-mix(in srgb, var(--gray-100) 70%, transparent);"></span>
+                    {% endif %}
+                </div>
+            {% endif %}
+        {% endfor %}
+    </div>
+    <p id="thumbhash-assets-empty" class="light{{ initialRows|length ? ' hidden' : '' }}" style="margin-top: var(--s);">{{ 'No eligible assets found.'|t('thumbhash') }}</p>
+</div>
+
 {% js %}
 (() => {
     const $form = $('#thumbhash-generator');
     const $submitButton = $form.find('button.submit:last');
     const $status = $form.find('.utility-status');
-    const $progressWrapper = $('#thumbhash-progress-wrapper');
-    const $processed = $('#thumbhash-progress-processed');
-    const $total = $('#thumbhash-progress-total');
 
     const queueAction = '{{ utilityAction|e('js') }}';
     const statusAction = '{{ statusAction|e('js') }}';
-
-    const progressBar = new Craft.ProgressBar($('#thumbhash-progress-bar'), false, {
-        announceProgress: false,
-    });
+    const rowsAction = '{{ rowsAction|e('js') }}';
+    const $grid = $('#thumbhash-png-grid');
+    const $gridProcessed = $('#thumbhash-grid-processed');
+    const $gridTotal = $('#thumbhash-grid-total');
+    const $empty = $('#thumbhash-assets-empty');
 
     let runTotal = 0;
-    let runFailed = 0;
     let pollTimer = null;
     let pollRequestActive = false;
+    let gridRequestActive = false;
+    let frozenAssetOrder = $grid.find('[data-asset-id]').map((_, el) => String($(el).data('asset-id'))).get();
+
+    const escapeHtml = (value) => {
+        return String(value)
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#39;');
+    };
+
+    const renderGrid = (rows) => {
+        if (!Array.isArray(rows) || rows.length === 0) {
+            $grid.html('');
+            $gridProcessed.text('0');
+            $gridTotal.text('0');
+            $empty.removeClass('hidden');
+            return {processed: 0, total: 0};
+        }
+
+        if (!Array.isArray(frozenAssetOrder) || frozenAssetOrder.length === 0) {
+            frozenAssetOrder = rows.map((row) => String(row.assetId ?? ''));
+        }
+
+        const rowsById = new Map();
+        rows.forEach((row) => {
+            rowsById.set(String(row.assetId ?? ''), row);
+        });
+
+        const orderedRows = [];
+        frozenAssetOrder.forEach((assetId) => {
+            if (rowsById.has(assetId)) {
+                orderedRows.push(rowsById.get(assetId));
+                rowsById.delete(assetId);
+            }
+        });
+
+        rows.forEach((row) => {
+            const assetId = String(row.assetId ?? '');
+            if (rowsById.has(assetId)) {
+                orderedRows.push(row);
+                frozenAssetOrder.push(assetId);
+                rowsById.delete(assetId);
+            }
+        });
+
+        let processedCount = 0;
+
+        const html = orderedRows.map((row) => {
+            const name = escapeHtml(row.name || '');
+            const assetId = escapeHtml(String(row.assetId ?? ''));
+            const editUrl = row.editUrl ? escapeHtml(row.editUrl) : '';
+            const dataUrl = row.dataUrl ? escapeHtml(row.dataUrl) : '';
+
+            const tileInner = dataUrl
+                ? `<img src="${dataUrl}" alt="${name}" loading="lazy" style="display:block; width:100%; height:100%; object-fit:cover; border-radius:4px;" />`
+                : '<span aria-hidden="true" style="display:block; width:100%; height:100%; border-radius:4px; border:1px dashed var(--hairlineColor); background: color-mix(in srgb, var(--gray-100) 70%, transparent);"></span>';
+
+            if (dataUrl) {
+                processedCount += 1;
+            }
+
+            if (editUrl) {
+                return `<a href="${editUrl}" class="thumbhash-png-item" data-asset-id="${assetId}" title="${name}" style="display:block; width: 100%; aspect-ratio: 1 / 1;">${tileInner}</a>`;
+            }
+
+            return `<div class="thumbhash-png-item" data-asset-id="${assetId}" title="${name}" style="display:block; width: 100%; aspect-ratio: 1 / 1;">${tileInner}</div>`;
+        }).join('');
+
+        $grid.html(html);
+        $gridProcessed.text(String(processedCount));
+        $gridTotal.text(String(orderedRows.length));
+        $empty.addClass('hidden');
+
+        return {
+            processed: processedCount,
+            total: orderedRows.length,
+        };
+    };
+
+    const loadGridRows = async () => {
+        if (gridRequestActive) {
+            return;
+        }
+
+        try {
+            gridRequestActive = true;
+
+            const response = await Craft.sendActionRequest('GET', rowsAction, {
+                data: { _: Date.now() },
+            });
+
+            return renderGrid(response.data?.rows || []);
+        } catch (error) {
+            // Ignore transient grid refresh errors while polling.
+            return null;
+        } finally {
+            gridRequestActive = false;
+        }
+    };
 
     const setButtonEnabled = (enabled) => {
         if (enabled) {
@@ -52,18 +184,6 @@
 
         $submitButton.addClass('disabled');
         $submitButton.prop('disabled', true);
-    };
-
-    const updateProgress = (processedCount, totalCount) => {
-        const safeTotal = Math.max(totalCount, 1);
-
-        progressBar.setItemCount(safeTotal);
-        progressBar.setProcessedItemCount(Math.min(processedCount, safeTotal));
-        progressBar.updateProgressBar();
-        progressBar.showProgressBar();
-
-        $processed.text(String(Math.min(processedCount, totalCount)));
-        $total.text(String(totalCount));
     };
 
     const stopPolling = () => {
@@ -92,21 +212,14 @@
                 const run = response.data?.run || {};
                 const hasRun = Boolean(run.hasRun);
                 runTotal = Number(run.total ?? 0);
-                runFailed = Number(run.failed ?? 0);
                 const processedCount = Number(run.processed ?? 0);
-
-                updateProgress(processedCount, runTotal);
+                const gridCounts = await loadGridRows();
 
                 const runComplete = runTotal > 0 && processedCount >= runTotal;
                 if (!hasRun || runComplete) {
                     stopPolling();
                     setButtonEnabled(true);
-
-                    if (runFailed > 0) {
-                        $status.text(Craft.t('thumbhash', 'Finished with {count, number} failed job(s).', { count: runFailed }));
-                    } else {
-                        $status.text(Craft.t('thumbhash', 'Processing complete.'));
-                    }
+                    window.location.reload();
                 }
             } catch (error) {
                 stopPolling();
@@ -133,25 +246,22 @@
             const isExistingRun = Boolean(response.data?.existingRun);
 
             runTotal = Number(response.data?.queued || 0);
-            runFailed = 0;
 
             if (isExistingRun) {
-                $progressWrapper.removeClass('hidden');
                 $status.text(Craft.t('thumbhash', 'Resuming processing...'));
+                loadGridRows();
                 startPolling();
                 return false;
             }
 
             if (runTotal === 0) {
-                $progressWrapper.addClass('hidden');
                 $status.text(Craft.t('thumbhash', 'No eligible images found.'));
                 setButtonEnabled(true);
                 return false;
             }
 
-            $progressWrapper.removeClass('hidden');
-            updateProgress(0, runTotal);
             $status.text(Craft.t('thumbhash', 'Processing images...'));
+            loadGridRows();
 
             startPolling();
         } catch (error) {
@@ -175,16 +285,14 @@
             }
 
             runTotal = Number(run.total || 0);
-            runFailed = Number(run.failed || 0);
 
             if (runTotal <= 0) {
                 return;
             }
 
-            $progressWrapper.removeClass('hidden');
-            updateProgress(Number(run.processed || 0), runTotal);
             $status.text(Craft.t('thumbhash', 'Resuming processing...'));
             setButtonEnabled(false);
+            loadGridRows();
             startPolling();
         } catch (error) {
             // Ignore resume errors; user can start a new run manually.
