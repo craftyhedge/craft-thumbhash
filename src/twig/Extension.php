@@ -4,10 +4,12 @@ namespace craftyhedge\craftthumbhash\twig;
 
 use Craft;
 use craft\elements\Asset;
+use craft\web\View;
 use craftyhedge\craftthumbhash\Plugin;
 use craftyhedge\craftthumbhash\web\assets\ThumbhashBundle;
 use Twig\Extension\AbstractExtension;
 use Twig\TwigFunction;
+use yii\helpers\Json;
 
 class Extension extends AbstractExtension
 {
@@ -51,6 +53,13 @@ class Extension extends AbstractExtension
      */
     public function getThumbhashScript(): string
     {
+        $settings = Plugin::getInstance()->getSettings();
+
+        Craft::$app->getView()->registerJs(
+            'window.thumbhashConfig = window.thumbhashConfig || {}; window.thumbhashConfig.backgroundPlaceholderStyles = ' . Json::htmlEncode((array)$settings->backgroundPlaceholderStyles) . ';',
+            View::POS_HEAD,
+        );
+
         Craft::$app->getView()->registerAssetBundle(ThumbhashBundle::class);
 
         return '';

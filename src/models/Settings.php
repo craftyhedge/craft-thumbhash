@@ -65,6 +65,17 @@ class Settings extends Model
     public int $transformSourceRetryDelay = 15;
 
     /**
+     * CSS styles applied automatically when `data-thumbhash-bg` is used.
+     *
+     * @var array<string, string>
+     */
+    public array $backgroundPlaceholderStyles = [
+        'backgroundRepeat' => 'no-repeat',
+        'backgroundSize' => 'cover',
+        'backgroundPosition' => 'center',
+    ];
+
+    /**
      * Whether to include debug-level plugin logs in dev mode.
      */
     public bool $logDebug = false;

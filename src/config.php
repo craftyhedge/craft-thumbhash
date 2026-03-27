@@ -50,6 +50,15 @@ return [
     // 'transformSourceMaxAttempts' => 4,
     // 'transformSourceRetryDelay' => 15,
 
+    // CSS styles applied automatically when using `data-thumbhash-bg`.
+    // Set to an empty array to disable the auto-applied background styles.
+    // Default: no-repeat / cover / center
+    // 'backgroundPlaceholderStyles' => [
+    //     'backgroundRepeat' => 'no-repeat',
+    //     'backgroundSize' => 'cover',
+    //     'backgroundPosition' => 'center',
+    // ],
+
     // Include debug-level plugin logs when dev mode is enabled.
     // Default: false
     // 'logDebug' => false,

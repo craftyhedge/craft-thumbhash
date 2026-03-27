@@ -5,15 +5,16 @@
  * Decoder logic from evanw/thumbhash (MIT License).
  * https://github.com/evanw/thumbhash
  *
- * Decodes data-thumbhash attributes into placeholder src data URLs.
+ * Decodes data-thumbhash attributes into placeholder data URLs.
  * Image loading/swapping is left entirely to the developer or their lazy loading library.
  *
  * Usage:
  *   <img data-thumbhash="BASE64_HASH" data-src="real-image.jpg" alt="..." />
+ *   <div data-thumbhash-bg="BASE64_HASH"></div>
  *
  * The script will:
  * 1. Decode the thumbhash to a tiny PNG data URL
- * 2. Set it as the src of the element (LQIP placeholder)
+ * 2. Set it as the src of the element or as background-image when data-thumbhash-bg is present
  * 3. Observe DOM mutations for dynamically added elements
  *
  * Your lazy loading library (lazysizes, lozad, etc.) handles swapping
@@ -23,6 +24,28 @@
  */
 ; (function () {
     'use strict';
+
+    var config = window.thumbhashConfig || {};
+
+    function getBackgroundPlaceholderStyles() {
+        var configuredStyles = config.backgroundPlaceholderStyles;
+        return configuredStyles && typeof configuredStyles === 'object' ? configuredStyles : {};
+    }
+
+    function applyInlineStyles(el, styles) {
+        for (var property in styles) {
+            if (!Object.prototype.hasOwnProperty.call(styles, property)) {
+                continue;
+            }
+
+            var value = styles[property];
+            if (typeof value !== 'string' || value === '') {
+                continue;
+            }
+
+            el.style[property] = value;
+        }
+    }
 
     // ---- thumbHashToRGBA (from evanw/thumbhash, MIT) ----
     function thumbHashToRGBA(hash) {
@@ -216,13 +239,42 @@
         toDataURL: function (base64Hash) {
             return cachedToDataURL(base64Hash);
         },
+        toBackgroundImage: function (base64Hash) {
+            return 'url("' + cachedToDataURL(base64Hash) + '")';
+        },
     };
+
+    function getThumbhashValue(el) {
+        var hashStr = el.dataset.thumbhash;
+        if (hashStr) {
+            return hashStr;
+        }
+
+        var backgroundHashStr = el.getAttribute('data-thumbhash-bg');
+        if (backgroundHashStr) {
+            return backgroundHashStr;
+        }
+
+        return '';
+    }
+
+    function setElementPlaceholder(el, dataUrl) {
+        if (el.hasAttribute('data-thumbhash-bg')) {
+            el.style.backgroundImage = 'url("' + dataUrl + '")';
+            applyInlineStyles(el, getBackgroundPlaceholderStyles());
+            return;
+        }
+
+        if ('src' in el) {
+            el.src = dataUrl;
+        }
+    }
 
     // ---- Process a single element ----
     function processElement(el) {
         if (el.dataset.thumbhashProcessed) return;
 
-        var hashStr = el.dataset.thumbhash;
+        var hashStr = getThumbhashValue(el);
         if (!hashStr) return;
 
         el.dataset.thumbhashProcessed = '1';
@@ -230,8 +282,8 @@
         try {
             var dataUrl = window.thumbhash.toDataURL(hashStr);
 
-            // Set decoded placeholder as src (LQIP)
-            el.src = dataUrl;
+            // Set decoded placeholder as src or background-image (LQIP)
+            setElementPlaceholder(el, dataUrl);
         } catch (e) {
             // Silently fail — don't break the page for a placeholder
         }
@@ -239,7 +291,7 @@
 
     // ---- Init: process all current elements ----
     function initAll() {
-        var elements = document.querySelectorAll('[data-thumbhash]:not([data-thumbhash-processed])');
+        var elements = document.querySelectorAll('[data-thumbhash]:not([data-thumbhash-processed]), [data-thumbhash-bg]:not([data-thumbhash-processed])');
         for (var i = 0; i < elements.length; i++) {
             processElement(elements[i]);
         }
@@ -255,11 +307,11 @@
                 for (var j = 0; j < added.length; j++) {
                     var node = added[j];
                     if (node.nodeType === 1) {
-                        if (node.hasAttribute && node.hasAttribute('data-thumbhash')) {
+                        if (node.hasAttribute && (node.hasAttribute('data-thumbhash') || node.hasAttribute('data-thumbhash-bg'))) {
                             processElement(node);
                         }
                         if (node.querySelectorAll) {
-                            var children = node.querySelectorAll('[data-thumbhash]:not([data-thumbhash-processed])');
+                            var children = node.querySelectorAll('[data-thumbhash]:not([data-thumbhash-processed]), [data-thumbhash-bg]:not([data-thumbhash-processed])');
                             for (var k = 0; k < children.length; k++) {
                                 processElement(children[k]);
                             }
