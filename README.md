@@ -4,15 +4,12 @@ Automatic [ThumbHash](https://evanw.github.io/thumbhash/) placeholder generation
 
 ## What is ThumbHash?
 
-ThumbHash is a compact image placeholder. 
+ThumbHash is a compact image placeholder.
 
-For the lightest HTML payload, use the base64 hash string with the included client-side JS decoder. (recommended)
-
-For zero-JavaScript placeholders, use the pre-decoded PNG data URL (typically adds around ~1KB per image to HTML, depending on dimensions and content).
-
-PNG data URLs are often highly compressible with gzip or Brotli.
-
-The JS decoder is typically very fast for small hashes, and because the script is deferred it does not block initial HTML parsing. Decoding still runs on the main thread, so total cost scales with the number of placeholders.
+- For the lightest HTML payload, use the base64 hash string with the included client-side JS decoder. Recommended.
+- For zero-JavaScript placeholders, use the pre-decoded PNG data URL. This typically adds around ~1KB per image to the HTML, depending on dimensions and content.
+- PNG data URLs are often highly compressible with gzip or Brotli.
+- The JS decoder is typically very fast for small hashes, and because the script is deferred it does not block initial HTML parsing. Decoding still runs on the main thread, so total cost scales with the number of placeholders.
 
 ## Requirements
 
@@ -30,7 +27,7 @@ php craft plugin/install thumbhash
 
 ## Usage
 
-### In Twig Templates
+### Twig Templates
 
 The decoder script will decode each hash to a tiny PNG data URL and set it as the `src` on the element. Your lazy loading library (lazysizes, lozad, etc.) handles swapping `data-src` → `src` when the element enters the viewport.
 
@@ -44,7 +41,7 @@ The decoder script will decode each hash to a tiny PNG data URL and set it as th
 <img data-thumbhash="{{ hash }}" data-src="{{ asset.url }}" alt="{{ asset.title }}" width="{{ asset.width }}" height="{{ asset.height }}" />
 ```
 
-For a smooth transition from the placeholder to the full image, you have to get a bit more inventive. Lazysizes JS library example:
+For a smoother transition from the placeholder to the full image, you can layer the placeholder behind the lazy-loaded image. Example using the Lazysizes library:
 
 ```twig
 {% set hash = thumbhash(asset) %}
@@ -95,13 +92,11 @@ img.lazyload:not([src]) {
 }
 ```
 
-In this example, there are a few key things happening:
-- Because there is no src attribute on either of these img tags, there is css to hide them until their sources are swapped in. Prevents showing any 'no image' browser placeholders.
-- The thumbhash image is absolutely positioned behind the main image, so it will be visible until the main image loads and fades in on top of it.
-- The main image has a fade-in animation to make the transition from the placeholder to the full image smoother. This is key to dealing with the class swapping from the lazy loading library.
+In this example:
 
-
-
+- Because neither `img` tag has a `src` attribute initially, the CSS hides them until their sources are swapped in. This avoids showing browser "missing image" placeholders.
+- The thumbhash image is absolutely positioned behind the main image, so it remains visible until the main image loads and fades in on top of it.
+- The main image uses a fade-in animation to make the transition from the placeholder to the full image smoother. This helps offset the class swapping done by the lazy-loading library.
 
 ### How It Works
 
@@ -202,9 +197,10 @@ return [
 ```
 
 ### Transform Source
+
 For the best server performance, it is recommended to use an external transform service like Imgix or Cloudflare Images.
 
-To ensure ThumbHash works with those transform services a plugin is needed to replace the native Craft transform service.
+To ensure ThumbHash works with those transform services, a plugin is needed to replace the native Craft transform service.
 
 #### Imgixer
 
@@ -265,6 +261,8 @@ php craft thumbhash/generate
 php craft thumbhash/generate --volume=images
 ```
 
+This command queues a batch job and returns immediately with the queued job ID. Processing starts when your Craft queue runner picks up the job.
+
 ## Clearing Stored Thumbhashes
 
 From the Control Panel Utility:
@@ -287,6 +285,7 @@ The `--yes=1` flag is required as a safety guard for this destructive action.
 ## How the Decoder Works
 
 The included JS decoder:
+
 - Finds all `[data-thumbhash]` elements on the page
 - Decodes each base64 hash to a tiny PNG data URL and sets it as `src` (LQIP placeholder)
 - Watches for dynamically added elements via `MutationObserver`
@@ -306,6 +305,7 @@ This plugin registers its own log target and writes to:
 - `storage/logs/thumbhash-YYYY-MM-DD.log`
 
 Notes:
+
 - In dev mode, info/warning/error messages are logged by default.
 - Set `logDebug` to `true` in `config/thumbhash.php` to include debug-level plugin events in dev mode.
 - In non-dev mode, warning/error messages are logged.
