@@ -127,25 +127,6 @@ img.lazyload:not([src]) {
 }
 ```
 
-
-### How It Works
-
-1. **On new image upload or file replacement**: A queue job generates the ThumbHash from a resized copy (≤100×100px) of the image
-2. **In templates**: `thumbhash(asset)` returns the base64 hash string (~28 bytes)
-3. **In the browser**: The decoder JS finds elements using either `data-thumbhash` or `data-thumbhash-bg`, decodes each hash to a tiny PNG data URL, and sets it as `src` or `background-image` when `data-thumbhash-bg` is present
-
-### Inline Mode (No JavaScript)
-
-If you prefer to skip the JS decoder entirely, use `thumbhashDataUrl()` to inline the placeholder directly:
-
-```twig
-{% set placeholder = thumbhashDataUrl(asset) %}
-
-<img src="{{ placeholder }}" data-src="{{ asset.url }}" alt="{{ asset.title }}" width="{{ asset.width }}" height="{{ asset.height }}" />
-```
-
-This adds around ~0.8-2KB per image to your HTML (vs ~40 bytes for the hash attribute), but placeholders are visible on first paint with zero JavaScript. The data URL is pre-computed and stored in the database alongside the hash. Stored values are PNG-compressed when available, with a fallback to the standard ThumbHash encoder.
-
 ### Template Functions
 
 | Function | Description |
@@ -340,21 +321,12 @@ php craft thumbhash/generate/clear-data-urls --yes=1
 
 The `--yes=1` flag is required as a safety guard for this destructive action.
 
-## How the Decoder Works
-
-The included JS decoder:
-
-- Finds all `[data-thumbhash]` elements on the page
-- Decodes each base64 hash to a tiny PNG data URL and sets it as `src` (LQIP placeholder)
-- Watches for dynamically added elements via `MutationObserver`
-- Does **not** include lazy loading — bring your own (lazysizes, lozad, native `loading="lazy"`, etc.)
-
 ## Notes
 
 - **SVGs are skipped** — they can't be rasterized to pixels for hashing
 - **Animated GIFs** — only the first frame is hashed
-- **Imagick is preferred** over GD for proper 8-bit alpha channel support
-- Hashes are stored in a custom `thumbhashes` DB table with a foreign key cascade to the elements table
+- **Imagick is preferred** over GD for proper 8-bit alpha channel support if fallback is ever used
+- Hashes and png urls are stored in a custom `thumbhashes` DB table with a foreign key cascade to the elements table
 
 ## Logging
 
