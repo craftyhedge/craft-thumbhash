@@ -38,6 +38,12 @@ class Plugin extends BasePlugin
     private const LOG_CATEGORY_PREFIX = 'craftyhedge\\craftthumbhash\\*';
     private const LOG_CATEGORY_HANDLE = 'thumbhash';
 
+    /** @var array<int, string|null> */
+    private array $assetPreviewDataUrls = [];
+
+    /** @var array<int, bool> */
+    private array $assetPreviewLoadedIds = [];
+
     public string $schemaVersion = '1.0.0';
 
     public static function config(): array
@@ -224,8 +230,7 @@ class Plugin extends BasePlugin
                 }
 
                 /** @var ThumbhashRecord|null $record */
-                $record = ThumbhashRecord::findOne(['assetId' => (int)$asset->id]);
-                $dataUrl = $record?->dataUrl;
+                $dataUrl = $this->thumbhashDataUrlForAsset($asset);
 
                 $event->html = $dataUrl && str_starts_with($dataUrl, 'data:image/')
                     ? Html::img($dataUrl, [
@@ -260,18 +265,6 @@ class Plugin extends BasePlugin
             Assets::EVENT_AFTER_REPLACE_ASSET,
             function (ReplaceAssetEvent $event) {
                 $this->pushThumbhashJob($event->asset);
-            },
-        );
-
-        // Delete thumbhash when an asset is soft-deleted (FK CASCADE only covers hard deletes during GC)
-        Event::on(
-            Asset::class,
-            Element::EVENT_AFTER_DELETE,
-            function (Event $event) {
-                /** @var Asset $asset */
-                $asset = $event->sender;
-
-                $this->thumbhash->deleteHash($asset->id);
             },
         );
     }
@@ -316,6 +309,59 @@ class Plugin extends BasePlugin
         $settings = $this->getSettings();
 
         return (bool)$settings->generateDataUrl;
+    }
+
+    private function thumbhashDataUrlForAsset(Asset $asset): ?string
+    {
+        $assetId = (int)$asset->id;
+
+        if (!array_key_exists($assetId, $this->assetPreviewLoadedIds)) {
+            $this->primeThumbhashDataUrls($asset);
+        }
+
+        return $this->assetPreviewDataUrls[$assetId] ?? null;
+    }
+
+    private function primeThumbhashDataUrls(Asset $asset): void
+    {
+        $assetIds = [];
+        $queryResult = $asset->elementQueryResult;
+
+        if (is_iterable($queryResult)) {
+            foreach ($queryResult as $queriedElement) {
+                if ($queriedElement instanceof Asset && $queriedElement->id) {
+                    $assetIds[] = (int)$queriedElement->id;
+                }
+            }
+        }
+
+        if (empty($assetIds) && $asset->id) {
+            $assetIds[] = (int)$asset->id;
+        }
+
+        $assetIds = array_values(array_unique(array_filter($assetIds)));
+        $missingIds = array_values(array_filter(
+            $assetIds,
+            fn(int $assetId): bool => !array_key_exists($assetId, $this->assetPreviewLoadedIds),
+        ));
+
+        if (empty($missingIds)) {
+            return;
+        }
+
+        foreach ($missingIds as $missingId) {
+            $this->assetPreviewLoadedIds[$missingId] = true;
+            $this->assetPreviewDataUrls[$missingId] = null;
+        }
+
+        $records = ThumbhashRecord::find()
+            ->select(['assetId', 'dataUrl'])
+            ->where(['assetId' => $missingIds])
+            ->all();
+
+        foreach ($records as $record) {
+            $this->assetPreviewDataUrls[(int)$record->assetId] = $record->dataUrl;
+        }
     }
 
     protected function createSettingsModel(): ?Model

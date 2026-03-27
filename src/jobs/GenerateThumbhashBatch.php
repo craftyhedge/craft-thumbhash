@@ -25,7 +25,6 @@ class GenerateThumbhashBatch extends BaseBatchedJob
     public int $generated = 0;
     public int $retried = 0;
     public int $failed = 0;
-    public int $fallbackCount = 0;
 
     protected function before(): void
     {
@@ -36,7 +35,6 @@ class GenerateThumbhashBatch extends BaseBatchedJob
         $this->generated = 0;
         $this->retried = 0;
         $this->failed = 0;
-        $this->fallbackCount = 0;
     }
 
     protected function after(): void
@@ -49,7 +47,6 @@ class GenerateThumbhashBatch extends BaseBatchedJob
             'generated' => $this->generated,
             'retried' => $this->retried,
             'failed' => $this->failed,
-            'fallbackCount' => $this->fallbackCount,
             'volumes' => $this->volumes,
         ]);
     }
@@ -98,11 +95,6 @@ class GenerateThumbhashBatch extends BaseBatchedJob
                 delay: $service->transformSourceRetryDelaySeconds(),
             );
             return;
-        }
-
-        if ($result['status'] === 'failed' && $useTransformSource) {
-            $this->fallbackCount++;
-            $result = $service->generateHashPayloadWithStatus($item, $generateDataUrl, false);
         }
 
         $generated = $result['payload'];

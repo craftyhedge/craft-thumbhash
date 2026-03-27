@@ -86,15 +86,6 @@ class GenerateThumbhash extends BaseJob
             ]);
 
             $result = $service->generateHashPayloadWithStatus($asset, $generateDataUrl, false);
-        } elseif ($result['status'] === 'failed' && $useTransformSource) {
-            $this->logEvent('warning', 'thumbhash.transform.fallback', [
-                'assetId' => (int)$asset->id,
-                'reason' => 'transform_failed',
-                'sourceMode' => 'original',
-                'generateDataUrl' => $generateDataUrl,
-            ]);
-
-            $result = $service->generateHashPayloadWithStatus($asset, $generateDataUrl, false);
         }
 
         $generated = $result['payload'];

@@ -2,9 +2,10 @@
 
 namespace craftyhedge\craftthumbhash\console\controllers;
 
-use Craft;
 use craft\console\Controller;
 use craft\elements\Asset;
+use craft\helpers\Queue as QueueHelper;
+use craftyhedge\craftthumbhash\jobs\GenerateThumbhashBatch;
 use craftyhedge\craftthumbhash\Plugin;
 use yii\console\ExitCode;
 
@@ -41,9 +42,13 @@ class GenerateController extends Controller
      */
     public function actionIndex(): int
     {
-        $query = Asset::find()->kind(Asset::KIND_IMAGE);
+        $query = Asset::find()
+            ->kind(Asset::KIND_IMAGE)
+            ->filename(['not', '*.svg']);
 
-        if ($this->volume) {
+        $volumes = $this->volume;
+
+        if ($this->volume !== null) {
             $query->volume($this->volume);
         } else {
             $settings = Plugin::getInstance()->getSettings();
@@ -61,49 +66,12 @@ class GenerateController extends Controller
             return ExitCode::OK;
         }
 
-        $this->stdout("Generating thumbhashes for {$total} image assets...\n");
+        $jobId = QueueHelper::push(new GenerateThumbhashBatch([
+            'volumes' => $volumes,
+        ]));
 
-        $service = Plugin::getInstance()->thumbhash;
-        $generateDataUrl = $service->shouldGenerateDataUrl();
-        $useTransformSource = $service->shouldUseTransformSource();
-        $done = 0;
-        $skipped = 0;
-        $errors = 0;
-
-        foreach ($query->each() as $asset) {
-            /** @var Asset $asset */
-            $done++;
-
-            $extension = strtolower($asset->getExtension());
-            if ($extension === 'svg') {
-                $skipped++;
-                continue;
-            }
-
-            if ($service->isAssetCurrent($asset, $generateDataUrl)) {
-                $skipped++;
-                continue;
-            }
-
-            $result = $service->generateHashPayloadWithStatus($asset, $generateDataUrl, $useTransformSource);
-
-            if (($result['status'] === 'pending' || $result['status'] === 'failed') && $useTransformSource) {
-                $result = $service->generateHashPayloadWithStatus($asset, $generateDataUrl, false);
-            }
-
-            $generated = $result['payload'];
-
-            if ($generated !== null) {
-                $service->saveHashForAsset($asset, $generated['hash'], $generated['dataUrl']);
-                $this->stdout("  [{$done}/{$total}] #{$asset->id} {$asset->filename} ✓\n");
-            } else {
-                $errors++;
-                $this->stderr("  [{$done}/{$total}] #{$asset->id} {$asset->filename} — failed\n");
-            }
-        }
-
-        $generated = $done - $skipped - $errors;
-        $this->stdout("\nDone. Generated: {$generated}, Skipped: {$skipped}, Errors: {$errors}\n");
+        $this->stdout("Queued thumbhash generation for {$total} image assets.\n");
+        $this->stdout("Queue job ID: {$jobId}\n");
 
         return ExitCode::OK;
     }
