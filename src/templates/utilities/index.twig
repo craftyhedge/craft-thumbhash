@@ -1,7 +1,9 @@
 {% set utilityAction = 'thumbhash/utilities/queue-generate' %}
+{% set clearAction = 'thumbhash/utilities/clear-all' %}
 {% set statusAction = 'thumbhash/utilities/job-status' %}
 {% set rowsAction = 'thumbhash/utilities/grid-rows' %}
 {% set initialRows = initialRows ?? [] %}
+{% set generateDataUrl = generateDataUrl ?? true %}
 
 <form id="thumbhash-generator" class="utility" method="post" accept-charset="UTF-8">
     {{ csrfInput() }}
@@ -9,8 +11,15 @@
     <h2 class="first">{{ 'ThumbHash Generation'|t('thumbhash') }}</h2>
     <p>{{ 'Queue ThumbHash generation for all missing or modified image assets.'|t('thumbhash') }}</p>
 
+    {% if not generateDataUrl %}
+        <p class="warning" style="margin-top: var(--s);">
+            {{ 'PNG placeholder generation is disabled in config (generateDataUrl = false). Hashes will still be generated.'|t('thumbhash') }}
+        </p>
+    {% endif %}
+
     <div class="buttons">
         <button type="submit" class="btn submit">{{ 'Generate'|t('thumbhash') }}</button>
+        <button type="button" class="btn" id="thumbhash-clear-all">{{ 'Clear All'|t('thumbhash') }}</button>
         <div class="utility-status"></div>
     </div>
 </form>
@@ -58,9 +67,11 @@
 (() => {
     const $form = $('#thumbhash-generator');
     const $submitButton = $form.find('button.submit:last');
+    const $clearButton = $('#thumbhash-clear-all');
     const $status = $form.find('.utility-status');
 
     const queueAction = '{{ utilityAction|e('js') }}';
+    const clearAction = '{{ clearAction|e('js') }}';
     const statusAction = '{{ statusAction|e('js') }}';
     const rowsAction = '{{ rowsAction|e('js') }}';
     const $grid = $('#thumbhash-png-grid');
@@ -177,11 +188,15 @@
         if (enabled) {
             $submitButton.removeClass('disabled');
             $submitButton.prop('disabled', false);
+            $clearButton.removeClass('disabled');
+            $clearButton.prop('disabled', false);
             return;
         }
 
         $submitButton.addClass('disabled');
         $submitButton.prop('disabled', true);
+        $clearButton.addClass('disabled');
+        $clearButton.prop('disabled', true);
     };
 
     const stopPolling = () => {
@@ -265,6 +280,35 @@
         } catch (error) {
             setButtonEnabled(true);
             $status.text(Craft.t('thumbhash', 'Could not queue jobs.'));
+        }
+
+        return false;
+    });
+
+    $clearButton.on('click', async () => {
+        if ($clearButton.hasClass('disabled')) {
+            return false;
+        }
+
+        const shouldClear = window.confirm(Craft.t('thumbhash', 'Clear all stored thumbhash records?'));
+        if (!shouldClear) {
+            return false;
+        }
+
+        setButtonEnabled(false);
+        $status.text(Craft.t('thumbhash', 'Clearing thumbhash records...'));
+
+        try {
+            const response = await Craft.sendActionRequest('POST', clearAction);
+            const deleted = Number(response.data?.deleted || 0);
+            $status.text(Craft.t('thumbhash', 'Cleared {count} records.', { count: deleted }));
+            frozenAssetOrder = [];
+            await loadGridRows();
+        } catch (error) {
+            $status.text(Craft.t('thumbhash', 'Could not clear thumbhash records.'));
+        } finally {
+            stopPolling();
+            setButtonEnabled(true);
         }
 
         return false;

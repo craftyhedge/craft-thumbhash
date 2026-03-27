@@ -36,16 +36,16 @@ class GenerateThumbhashBatch extends BaseBatchedJob
         }
 
         $service = Plugin::getInstance()->thumbhash;
+        $generateDataUrl = $service->shouldGenerateDataUrl();
 
-        if ($service->isAssetCurrent($item, true)) {
+        if ($service->isAssetCurrent($item, $generateDataUrl)) {
             return;
         }
 
-        $hash = $service->generateHash($item);
+        $generated = $service->generateHashPayload($item, $generateDataUrl);
 
-        if ($hash !== null) {
-            $dataUrl = $service->hashToDataUrl($hash);
-            $service->saveHashForAsset($item, $hash, $dataUrl);
+        if ($generated !== null) {
+            $service->saveHashForAsset($item, $generated['hash'], $generated['dataUrl']);
         }
     }
 

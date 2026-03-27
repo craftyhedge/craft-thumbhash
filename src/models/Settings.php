@@ -14,4 +14,10 @@ class Settings extends Model
      * @var string[]|string|null
      */
     public array|string|null $volumes = '*';
+
+    /**
+     * Whether to generate and store decoded PNG data URLs.
+     * Disable this to skip PNG creation and only store hash strings.
+     */
+    public bool $generateDataUrl = true;
 }

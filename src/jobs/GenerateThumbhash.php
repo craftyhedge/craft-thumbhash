@@ -26,16 +26,16 @@ class GenerateThumbhash extends BaseJob
         }
 
         $service = Plugin::getInstance()->thumbhash;
+        $generateDataUrl = $service->shouldGenerateDataUrl();
 
-        if ($service->isAssetCurrent($asset, true)) {
+        if ($service->isAssetCurrent($asset, $generateDataUrl)) {
             return;
         }
 
-        $hash = $service->generateHash($asset);
+        $generated = $service->generateHashPayload($asset, $generateDataUrl);
 
-        if ($hash !== null) {
-            $dataUrl = $service->hashToDataUrl($hash);
-            $service->saveHashForAsset($asset, $hash, $dataUrl);
+        if ($generated !== null) {
+            $service->saveHashForAsset($asset, $generated['hash'], $generated['dataUrl']);
         }
 
         $this->setProgress($queue, 1, "ThumbHash: Completed asset {$this->assetId}");

@@ -15,11 +15,19 @@ class GenerateController extends Controller
      */
     public ?string $volume = null;
 
+    /**
+     * @var bool Require explicit confirmation for destructive actions.
+     */
+    public bool $yes = false;
+
     public function options($actionID): array
     {
         $options = parent::options($actionID);
         if ($actionID === 'index') {
             $options[] = 'volume';
+        }
+        if ($actionID === 'clear' || $actionID === 'clear-data-urls') {
+            $options[] = 'yes';
         }
         return $options;
     }
@@ -56,6 +64,7 @@ class GenerateController extends Controller
         $this->stdout("Generating thumbhashes for {$total} image assets...\n");
 
         $service = Plugin::getInstance()->thumbhash;
+        $generateDataUrl = $service->shouldGenerateDataUrl();
         $done = 0;
         $skipped = 0;
         $errors = 0;
@@ -70,16 +79,15 @@ class GenerateController extends Controller
                 continue;
             }
 
-            if ($service->isAssetCurrent($asset, true)) {
+            if ($service->isAssetCurrent($asset, $generateDataUrl)) {
                 $skipped++;
                 continue;
             }
 
-            $hash = $service->generateHash($asset);
+            $generated = $service->generateHashPayload($asset, $generateDataUrl);
 
-            if ($hash !== null) {
-                $dataUrl = $service->hashToDataUrl($hash);
-                $service->saveHashForAsset($asset, $hash, $dataUrl);
+            if ($generated !== null) {
+                $service->saveHashForAsset($asset, $generated['hash'], $generated['dataUrl']);
                 $this->stdout("  [{$done}/{$total}] #{$asset->id} {$asset->filename} ✓\n");
             } else {
                 $errors++;
@@ -89,6 +97,44 @@ class GenerateController extends Controller
 
         $generated = $done - $skipped - $errors;
         $this->stdout("\nDone. Generated: {$generated}, Skipped: {$skipped}, Errors: {$errors}\n");
+
+        return ExitCode::OK;
+    }
+
+    /**
+     * Clear all stored thumbhash records.
+     *
+     * Usage:
+     *   php craft thumbhash/generate/clear --yes=1
+     */
+    public function actionClear(): int
+    {
+        if (!$this->yes) {
+            $this->stderr("Refusing to clear thumbhash records without --yes=1.\n");
+            return ExitCode::USAGE;
+        }
+
+        $deleted = Plugin::getInstance()->thumbhash->clearAllHashes();
+        $this->stdout("Cleared {$deleted} thumbhash records.\n");
+
+        return ExitCode::OK;
+    }
+
+    /**
+     * Clear only stored PNG data URLs while keeping thumbhash strings.
+     *
+     * Usage:
+     *   php craft thumbhash/generate/clear-data-urls --yes=1
+     */
+    public function actionClearDataUrls(): int
+    {
+        if (!$this->yes) {
+            $this->stderr("Refusing to clear PNG data URLs without --yes=1.\n");
+            return ExitCode::USAGE;
+        }
+
+        $updated = Plugin::getInstance()->thumbhash->clearAllDataUrls();
+        $this->stdout("Cleared PNG data URLs for {$updated} thumbhash records.\n");
 
         return ExitCode::OK;
     }

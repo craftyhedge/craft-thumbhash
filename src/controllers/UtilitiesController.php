@@ -111,6 +111,22 @@ class UtilitiesController extends Controller
         ]);
     }
 
+    public function actionClearAll(): Response
+    {
+        $this->requireCpRequest();
+        $this->requireAcceptsJson();
+        $this->requirePostRequest();
+        $this->requirePermission('utility:' . ThumbhashUtility::id());
+
+        $deleted = Plugin::getInstance()->thumbhash->clearAllHashes();
+        Craft::$app->getCache()->delete($this->runCacheKey());
+
+        return $this->asJson([
+            'success' => true,
+            'deleted' => (int)$deleted,
+        ]);
+    }
+
     public function actionJobStatus(): Response
     {
         $this->requireCpRequest();

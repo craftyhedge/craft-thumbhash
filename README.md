@@ -148,8 +148,9 @@ return [
     // 'generateHash' => true,
 
     // Generate and store the decoded PNG data URL (~300 bytes per asset).
-    // Used for inline placeholders without JavaScript. Default: false
-    // 'generateDataUrl' => false,
+    // Used for inline placeholders without JavaScript. Set to false to disable PNG creation.
+    // Default: true
+    // 'generateDataUrl' => true,
 ];
 ```
 
@@ -164,6 +165,25 @@ php craft thumbhash/generate
 # Specific volume only
 php craft thumbhash/generate --volume=images
 ```
+
+## Clearing Stored Thumbhashes
+
+From the Control Panel Utility:
+
+- Open Utilities → ThumbHash
+- Click `Clear All`
+- Confirm the prompt to delete all stored thumbhash records
+
+From CLI:
+
+```bash
+php craft thumbhash/generate/clear --yes=1
+
+# Clear only stored PNG data URLs, keep thumbhash strings
+php craft thumbhash/generate/clear-data-urls --yes=1
+```
+
+The `--yes=1` flag is required as a safety guard for this destructive action.
 
 ## How the Decoder Works
 

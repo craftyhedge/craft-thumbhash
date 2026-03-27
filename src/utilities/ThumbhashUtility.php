@@ -36,8 +36,11 @@ class ThumbhashUtility extends Utility
 
     public static function contentHtml(): string
     {
+        $settings = Plugin::getInstance()->getSettings();
+
         return Craft::$app->getView()->renderTemplate('thumbhash/utilities/index', [
             'initialRows' => self::initialRows(),
+            'generateDataUrl' => (bool)$settings->generateDataUrl,
         ]);
     }
 

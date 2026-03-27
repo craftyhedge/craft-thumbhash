@@ -93,7 +93,7 @@ class Plugin extends BasePlugin
                     ? Html::tag('code', Html::encode((string)$displayHash), ['title' => $hash])
                     : Html::tag('span', '-', ['class' => 'light']);
 
-                $event->metadata[Craft::t('thumbhash', '#PNG')] = $dataUrl
+                $event->metadata[Craft::t('thumbhash', '#PNG')] = $dataUrl && str_starts_with($dataUrl, 'data:image/')
                     ? Html::img($dataUrl, [
                         'alt' => '',
                         'width' => 56,
@@ -110,6 +110,13 @@ class Plugin extends BasePlugin
             Element::EVENT_REGISTER_TABLE_ATTRIBUTES,
             function(RegisterElementTableAttributesEvent $event) {
                 $tableAttributes = $event->tableAttributes;
+
+                if (!$this->shouldShowPngPreviewColumn()) {
+                    unset($tableAttributes[self::ASSET_TABLE_ATTR_PNG_PREVIEW]);
+                    $event->tableAttributes = $tableAttributes;
+                    return;
+                }
+
                 $pngPreviewConfig = [
                     'label' => Craft::t('thumbhash', '#PNG'),
                 ];
@@ -140,6 +147,11 @@ class Plugin extends BasePlugin
                     static fn(string $attr): bool => $attr !== self::ASSET_TABLE_ATTR_PNG_PREVIEW,
                 ));
 
+                if (!$this->shouldShowPngPreviewColumn()) {
+                    $event->tableAttributes = $defaultAttrs;
+                    return;
+                }
+
                 $titleIndex = array_search('title', $defaultAttrs, true);
                 if ($titleIndex !== false) {
                     array_splice($defaultAttrs, $titleIndex + 1, 0, [self::ASSET_TABLE_ATTR_PNG_PREVIEW]);
@@ -166,6 +178,11 @@ class Plugin extends BasePlugin
                         return;
                     }
 
+                    if (!$this->shouldShowPngPreviewColumn()) {
+                        $event->html = '';
+                        return;
+                    }
+
                     /** @var Asset $asset */
                     $asset = $event->sender;
 
@@ -174,18 +191,11 @@ class Plugin extends BasePlugin
                         return;
                     }
 
-                    static $recordMap = [];
-
-                    $assetId = (int)$asset->id;
-                    if (!array_key_exists($assetId, $recordMap)) {
-                        $recordMap[$assetId] = ThumbhashRecord::findOne(['assetId' => $assetId]);
-                    }
-
                     /** @var ThumbhashRecord|null $record */
-                    $record = $recordMap[$assetId] ?? null;
+                    $record = ThumbhashRecord::findOne(['assetId' => (int)$asset->id]);
                     $dataUrl = $record?->dataUrl;
 
-                    $event->html = $dataUrl
+                    $event->html = $dataUrl && str_starts_with($dataUrl, 'data:image/')
                         ? Html::img($dataUrl, [
                             'alt' => '',
                             'width' => 32,
@@ -267,6 +277,14 @@ class Plugin extends BasePlugin
         $volume = $asset->getVolume();
 
         return in_array($volume->handle, (array) $volumes, true);
+    }
+
+    private function shouldShowPngPreviewColumn(): bool
+    {
+        /** @var Settings $settings */
+        $settings = $this->getSettings();
+
+        return (bool)$settings->generateDataUrl;
     }
 
     protected function createSettingsModel(): ?Model

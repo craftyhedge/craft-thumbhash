@@ -5,6 +5,7 @@ namespace craftyhedge\craftthumbhash\services;
 use Craft;
 use craft\elements\Asset;
 use Thumbhash\Thumbhash;
+use craftyhedge\craftthumbhash\Plugin;
 use craftyhedge\craftthumbhash\records\ThumbhashRecord;
 use DateTimeInterface;
 use yii\base\Component;
@@ -20,6 +21,18 @@ class ThumbhashService extends Component
      * Returns null if the asset is not a supported image.
      */
     public function generateHash(Asset $asset): ?string
+    {
+        $generated = $this->generateHashPayload($asset, false);
+
+        return $generated['hash'] ?? null;
+    }
+
+    /**
+     * Generate hash data from an asset image in a single pass.
+     *
+     * @return array{hash: string, dataUrl: ?string}|null
+     */
+    public function generateHashPayload(Asset $asset, bool $generateDataUrl = false): ?array
     {
         if ($asset->kind !== Asset::KIND_IMAGE) {
             return null;
@@ -59,7 +72,13 @@ class ThumbhashService extends Component
             [$width, $height, $pixels] = $rgba;
 
             $hashArray = Thumbhash::RGBAToHash($width, $height, $pixels);
-            return Thumbhash::convertHashToString($hashArray);
+            $hash = Thumbhash::convertHashToString($hashArray);
+            $dataUrl = $generateDataUrl ? Thumbhash::toDataURL($hashArray) : null;
+
+            return [
+                'hash' => $hash,
+                'dataUrl' => $dataUrl,
+            ];
         } catch (\Throwable $e) {
             Craft::error("ThumbHash: Error generating hash for asset {$asset->id}: {$e->getMessage()}", __METHOD__);
             return null;
@@ -126,8 +145,10 @@ class ThumbhashService extends Component
     /**
      * Returns true when an asset already has a current hash record.
      */
-    public function isAssetCurrent(Asset $asset, bool $requireDataUrl = true): bool
+    public function isAssetCurrent(Asset $asset, ?bool $requireDataUrl = null): bool
     {
+        $requireDataUrl ??= $this->shouldGenerateDataUrl();
+
         $record = ThumbhashRecord::findOne(['assetId' => $asset->id]);
 
         if (!$record || !$record->hash) {
@@ -153,6 +174,20 @@ class ThumbhashService extends Component
             && $recordSize === $sourceSize
             && $recordWidth === $sourceWidth
             && $recordHeight === $sourceHeight;
+    }
+
+    /**
+     * Whether the plugin should pre-generate and store PNG data URLs.
+     */
+    public function shouldGenerateDataUrl(): bool
+    {
+        $plugin = Plugin::getInstance();
+
+        if ($plugin === null) {
+            return true;
+        }
+
+        return (bool)$plugin->getSettings()->generateDataUrl;
     }
 
     /**
@@ -219,6 +254,25 @@ class ThumbhashService extends Component
     public function deleteHash(int $assetId): void
     {
         ThumbhashRecord::deleteAll(['assetId' => $assetId]);
+    }
+
+    /**
+     * Delete all stored thumbhash records.
+     */
+    public function clearAllHashes(): int
+    {
+        return ThumbhashRecord::deleteAll();
+    }
+
+    /**
+     * Clear only stored PNG data URLs while keeping hash records.
+     */
+    public function clearAllDataUrls(): int
+    {
+        return ThumbhashRecord::updateAll(
+            ['dataUrl' => null],
+            ['not', ['dataUrl' => null]],
+        );
     }
 
     /**
