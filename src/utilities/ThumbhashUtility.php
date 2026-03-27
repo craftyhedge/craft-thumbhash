@@ -14,6 +14,11 @@ class ThumbhashUtility extends Utility
 {
     private const ICON_PATH = __DIR__ . '/../icon-mask.svg';
 
+    private static function isSvgAsset(Asset $asset): bool
+    {
+        return strtolower((string)$asset->getExtension()) === 'svg';
+    }
+
     public static function displayName(): string
     {
         return Craft::t('thumbhash', 'ThumbHash');
@@ -73,6 +78,10 @@ class ThumbhashUtility extends Utility
 
         $rows = [];
         foreach ($assets as $asset) {
+            if (self::isSvgAsset($asset)) {
+                continue;
+            }
+
             $record = $records[$asset->id] ?? null;
             $dataUrl = $record?->dataUrl;
 

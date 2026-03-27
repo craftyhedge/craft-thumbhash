@@ -571,12 +571,22 @@ class ThumbhashService extends Component
             return 'https';
         }
 
-        $base = $this->siteBaseUrl();
-        if ($base !== null) {
-            $parts = parse_url($base);
-            if (is_array($parts) && isset($parts['scheme']) && is_string($parts['scheme'])) {
-                return strtolower($parts['scheme']);
+        try {
+            $base = UrlHelper::siteUrl('');
+
+            if (is_string($base) && $base !== '') {
+                if (str_starts_with($base, '//')) {
+                    return 'https';
+                }
+
+                $parts = parse_url($base);
+                if (is_array($parts) && isset($parts['scheme']) && is_string($parts['scheme'])) {
+                    return strtolower($parts['scheme']);
+                }
             }
+        } catch (
+            \Throwable
+        ) {
         }
 
         return 'https';
@@ -704,6 +714,14 @@ class ThumbhashService extends Component
                 'ThumbHash: Failed to save hash for asset ' . $assetId . ': ' . implode(', ', $record->getFirstErrors()),
                 __METHOD__,
             );
+
+            return;
+        }
+
+        unset($this->dataUrlCache[$assetId]);
+
+        if ($dataUrl !== null) {
+            $this->dataUrlCache[$assetId] = $dataUrl;
         }
     }
 
@@ -1021,6 +1039,7 @@ class ThumbhashService extends Component
     public function deleteHash(int $assetId): void
     {
         ThumbhashRecord::deleteAll(['assetId' => $assetId]);
+        unset($this->dataUrlCache[$assetId]);
     }
 
     /**
@@ -1028,7 +1047,10 @@ class ThumbhashService extends Component
      */
     public function clearAllHashes(): int
     {
-        return ThumbhashRecord::deleteAll();
+        $deleted = ThumbhashRecord::deleteAll();
+        $this->dataUrlCache = [];
+
+        return $deleted;
     }
 
     /**
@@ -1036,10 +1058,14 @@ class ThumbhashService extends Component
      */
     public function clearAllDataUrls(): int
     {
-        return ThumbhashRecord::updateAll(
+        $updated = ThumbhashRecord::updateAll(
             ['dataUrl' => null],
             ['not', ['dataUrl' => null]],
         );
+
+        $this->dataUrlCache = [];
+
+        return $updated;
     }
 
     /**

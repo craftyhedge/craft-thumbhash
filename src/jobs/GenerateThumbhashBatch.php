@@ -20,6 +20,10 @@ class GenerateThumbhashBatch extends BaseBatchedJob
      * @var array<string>|string|null
      */
     public array|string|null $volumes = null;
+    /**
+     * @var array<int>|null
+     */
+    public ?array $assetIds = null;
     public int $scanned = 0;
     public int $skippedCurrent = 0;
     public int $generated = 0;
@@ -58,6 +62,14 @@ class GenerateThumbhashBatch extends BaseBatchedJob
             ->filename(['not', '*.svg'])
             ->orderBy('id ASC');
 
+        if (is_array($this->assetIds)) {
+            if ($this->assetIds === []) {
+                return new QueryBatcher($query->id(0));
+            }
+
+            $query->id($this->assetIds);
+        }
+
         if ($this->volumes !== null && $this->volumes !== '*') {
             $query->volume((array)$this->volumes);
         }
@@ -72,6 +84,10 @@ class GenerateThumbhashBatch extends BaseBatchedJob
         }
 
         $this->scanned++;
+
+        if (strtolower($item->getExtension()) === 'svg') {
+            return;
+        }
 
         $service = Plugin::getInstance()->thumbhash;
         $generateDataUrl = $service->shouldGenerateDataUrl();

@@ -5,6 +5,7 @@ namespace craftyhedge\craftthumbhash\jobs;
 use Craft;
 use craft\elements\Asset;
 use craft\helpers\Queue as QueueHelper;
+use craft\i18n\Translation;
 use craft\queue\BaseJob;
 use craftyhedge\craftthumbhash\Plugin;
 use samdark\log\PsrMessage;
@@ -19,7 +20,9 @@ class GenerateThumbhash extends BaseJob
 
     public function execute($queue): void
     {
-        $this->setProgress($queue, 0, "ThumbHash: Preparing asset {$this->assetId}");
+        $this->setProgress($queue, 0, Translation::prep('app', 'ThumbHash: Preparing asset {assetId}', [
+            'assetId' => $this->assetId,
+        ]));
 
         $asset = Asset::find()->id($this->assetId)->one();
 
@@ -94,12 +97,16 @@ class GenerateThumbhash extends BaseJob
             $service->saveHashForAsset($asset, $generated['hash'], $generated['dataUrl']);
         }
 
-        $this->setProgress($queue, 1, "ThumbHash: Completed asset {$this->assetId}");
+        $this->setProgress($queue, 1, Translation::prep('app', 'ThumbHash: Completed asset {assetId}', [
+            'assetId' => $this->assetId,
+        ]));
     }
 
     protected function defaultDescription(): ?string
     {
-        return "ThumbHash: Generating asset {$this->assetId}";
+        return Translation::prep('app', 'ThumbHash: Generating asset {assetId}', [
+            'assetId' => $this->assetId,
+        ]);
     }
 
     private function logEvent(string $level, string $event, array $context = []): void

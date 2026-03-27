@@ -83,6 +83,7 @@
     let pollTimer = null;
     let pollRequestActive = false;
     let gridRequestActive = false;
+    let lastSeenProcessedCount = null;
     let frozenAssetOrder = $grid.find('[data-asset-id]').map((_, el) => String($(el).data('asset-id'))).get();
 
     const escapeHtml = (value) => {
@@ -199,6 +200,19 @@
         $clearButton.prop('disabled', true);
     };
 
+    const setFailedStatus = (message) => {
+        const trimmedMessage = String(message || '').trim();
+
+        if (trimmedMessage) {
+            $status.text(Craft.t('thumbhash', 'Processing failed: {message}', {
+                message: trimmedMessage,
+            }));
+            return;
+        }
+
+        $status.text(Craft.t('thumbhash', 'Processing failed.'));
+    };
+
     const stopPolling = () => {
         if (!pollTimer) {
             return;
@@ -224,12 +238,25 @@
                 });
                 const run = response.data?.run || {};
                 const hasRun = Boolean(run.hasRun);
+                const runState = String(run.state || (hasRun ? 'running' : 'idle'));
+                const runError = String(run.error || '');
                 runTotal = Number(run.total ?? 0);
                 const processedCount = Number(run.processed ?? 0);
-                const gridCounts = await loadGridRows();
 
-                const runComplete = runTotal > 0 && processedCount >= runTotal;
-                if (!hasRun || runComplete) {
+                if (lastSeenProcessedCount === null || processedCount > lastSeenProcessedCount) {
+                    lastSeenProcessedCount = processedCount;
+                    await loadGridRows();
+                }
+
+                if (runState === 'failed') {
+                    stopPolling();
+                    setButtonEnabled(true);
+                    setFailedStatus(runError);
+                    return;
+                }
+
+                const runComplete = runState === 'completed' || (runTotal > 0 && processedCount >= runTotal);
+                if (runComplete) {
                     stopPolling();
                     setButtonEnabled(true);
                     window.location.reload();
@@ -259,10 +286,11 @@
             const isExistingRun = Boolean(response.data?.existingRun);
 
             runTotal = Number(response.data?.queued || 0);
+            lastSeenProcessedCount = null;
 
             if (isExistingRun) {
                 $status.text(Craft.t('thumbhash', 'Resuming processing...'));
-                loadGridRows();
+                await loadGridRows();
                 startPolling();
                 return false;
             }
@@ -274,7 +302,7 @@
             }
 
             $status.text(Craft.t('thumbhash', 'Processing images...'));
-            loadGridRows();
+            await loadGridRows();
 
             startPolling();
         } catch (error) {
@@ -321,12 +349,21 @@
             });
             const run = response.data?.run || {};
             const hasRun = Boolean(run.hasRun);
+            const runState = String(run.state || (hasRun ? 'running' : 'idle'));
+            const runError = String(run.error || '');
+
+            if (runState === 'failed') {
+                setFailedStatus(runError);
+                setButtonEnabled(true);
+                return;
+            }
 
             if (!hasRun) {
                 return;
             }
 
             runTotal = Number(run.total || 0);
+            lastSeenProcessedCount = null;
 
             if (runTotal <= 0) {
                 return;
@@ -334,7 +371,7 @@
 
             $status.text(Craft.t('thumbhash', 'Resuming processing...'));
             setButtonEnabled(false);
-            loadGridRows();
+            await loadGridRows();
             startPolling();
         } catch (error) {
             // Ignore resume errors; user can start a new run manually.
