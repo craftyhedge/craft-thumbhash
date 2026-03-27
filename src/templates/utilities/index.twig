@@ -7,10 +7,10 @@
     {{ csrfInput() }}
 
     <h2 class="first">{{ 'ThumbHash Generation'|t('thumbhash') }}</h2>
-    <p>{{ 'Queue ThumbHash generation for all eligible image assets.'|t('thumbhash') }}</p>
+    <p>{{ 'Queue ThumbHash generation for all missing or modified image assets.'|t('thumbhash') }}</p>
 
     <div class="buttons">
-        <button type="submit" class="btn submit">{{ 'Process Images'|t('thumbhash') }}</button>
+        <button type="submit" class="btn submit">{{ 'Generate'|t('thumbhash') }}</button>
         <div class="utility-status"></div>
     </div>
 </form>
@@ -25,11 +25,9 @@
     {% endfor %}
 
     <p class="light" style="margin-top: 0; margin-bottom: var(--s);">
-        {{ 'Processed PNGs:'|t('thumbhash') }}
         <span id="thumbhash-grid-processed">{{ processedPngs }}</span>
         {{ 'of'|t('thumbhash') }}
         <span id="thumbhash-grid-total">{{ totalImages }}</span>
-        {{ 'images.'|t('thumbhash') }}
     </p>
 
     <div id="thumbhash-png-grid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)); gap: 6px;">

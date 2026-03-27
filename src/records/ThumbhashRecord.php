@@ -10,6 +10,10 @@ use craftyhedge\craftthumbhash\db\Table;
  * @property int $assetId
  * @property string|null $hash
  * @property string|null $dataUrl
+ * @property int|null $sourceModifiedAt
+ * @property int|null $sourceSize
+ * @property int|null $sourceWidth
+ * @property int|null $sourceHeight
  */
 class ThumbhashRecord extends ActiveRecord
 {

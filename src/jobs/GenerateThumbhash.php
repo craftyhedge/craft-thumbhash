@@ -27,11 +27,15 @@ class GenerateThumbhash extends BaseJob
 
         $service = Plugin::getInstance()->thumbhash;
 
+        if ($service->isAssetCurrent($asset, true)) {
+            return;
+        }
+
         $hash = $service->generateHash($asset);
 
         if ($hash !== null) {
             $dataUrl = $service->hashToDataUrl($hash);
-            $service->saveHash($this->assetId, $hash, $dataUrl);
+            $service->saveHashForAsset($asset, $hash, $dataUrl);
         }
 
         $this->setProgress($queue, 1, "ThumbHash: Completed asset {$this->assetId}");

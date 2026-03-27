@@ -6,6 +6,7 @@ use Craft;
 use craft\elements\Asset;
 use Thumbhash\Thumbhash;
 use craftyhedge\craftthumbhash\records\ThumbhashRecord;
+use DateTimeInterface;
 use yii\base\Component;
 
 class ThumbhashService extends Component
@@ -72,7 +73,15 @@ class ThumbhashService extends Component
     /**
      * Save (upsert) a thumbhash and optional data URL for an asset.
      */
-    public function saveHash(int $assetId, ?string $hash, ?string $dataUrl = null): void
+    public function saveHash(
+        int $assetId,
+        ?string $hash,
+        ?string $dataUrl = null,
+        ?int $sourceModifiedAt = null,
+        ?int $sourceSize = null,
+        ?int $sourceWidth = null,
+        ?int $sourceHeight = null,
+    ): void
     {
         $record = ThumbhashRecord::findOne(['assetId' => $assetId]);
 
@@ -83,6 +92,10 @@ class ThumbhashService extends Component
 
         $record->hash = $hash;
         $record->dataUrl = $dataUrl;
+        $record->sourceModifiedAt = $sourceModifiedAt;
+        $record->sourceSize = $sourceSize;
+        $record->sourceWidth = $sourceWidth;
+        $record->sourceHeight = $sourceHeight;
 
         if (!$record->save()) {
             Craft::error(
@@ -90,6 +103,56 @@ class ThumbhashService extends Component
                 __METHOD__,
             );
         }
+    }
+
+    /**
+     * Save hash fields using source metadata derived from an asset.
+     */
+    public function saveHashForAsset(Asset $asset, ?string $hash, ?string $dataUrl = null): void
+    {
+        [$sourceModifiedAt, $sourceSize, $sourceWidth, $sourceHeight] = $this->getSourceMetadata($asset);
+
+        $this->saveHash(
+            (int)$asset->id,
+            $hash,
+            $dataUrl,
+            $sourceModifiedAt,
+            $sourceSize,
+            $sourceWidth,
+            $sourceHeight,
+        );
+    }
+
+    /**
+     * Returns true when an asset already has a current hash record.
+     */
+    public function isAssetCurrent(Asset $asset, bool $requireDataUrl = true): bool
+    {
+        $record = ThumbhashRecord::findOne(['assetId' => $asset->id]);
+
+        if (!$record || !$record->hash) {
+            return false;
+        }
+
+        if ($requireDataUrl && !$record->dataUrl) {
+            return false;
+        }
+
+        [$sourceModifiedAt, $sourceSize, $sourceWidth, $sourceHeight] = $this->getSourceMetadata($asset);
+
+        if ($sourceModifiedAt === null || $sourceSize === null || $sourceWidth === null || $sourceHeight === null) {
+            return false;
+        }
+
+        $recordModifiedAt = $this->normalizeNullableInt($record->sourceModifiedAt ?? null);
+        $recordSize = $this->normalizeNullableInt($record->sourceSize ?? null);
+        $recordWidth = $this->normalizeNullableInt($record->sourceWidth ?? null);
+        $recordHeight = $this->normalizeNullableInt($record->sourceHeight ?? null);
+
+        return $recordModifiedAt === $sourceModifiedAt
+            && $recordSize === $sourceSize
+            && $recordWidth === $sourceWidth
+            && $recordHeight === $sourceHeight;
     }
 
     /**
@@ -258,5 +321,36 @@ class ThumbhashService extends Component
             Craft::error("ThumbHash: GD extraction failed: {$e->getMessage()}", __METHOD__);
             return null;
         }
+    }
+
+    /**
+     * @return array{?int, ?int, ?int, ?int} [modifiedAt, size, width, height]
+     */
+    private function getSourceMetadata(Asset $asset): array
+    {
+        $modifiedAt = null;
+        $dateModified = $asset->dateModified ?? null;
+        if ($dateModified instanceof DateTimeInterface) {
+            $modifiedAt = $dateModified->getTimestamp();
+        }
+
+        $size = $this->normalizeNullableInt($asset->size ?? null);
+        $width = $this->normalizeNullableInt($asset->width ?? null);
+        $height = $this->normalizeNullableInt($asset->height ?? null);
+
+        return [$modifiedAt, $size, $width, $height];
+    }
+
+    private function normalizeNullableInt(mixed $value): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (is_numeric($value)) {
+            return (int)$value;
+        }
+
+        return null;
     }
 }
