@@ -13,7 +13,9 @@ use craft\events\RegisterElementDefaultTableAttributesEvent;
 use craft\events\RegisterElementTableAttributesEvent;
 use craft\events\RegisterComponentTypesEvent;
 use craft\events\ReplaceAssetEvent;
+use craft\helpers\App;
 use craft\helpers\Html;
+use craft\log\MonologTarget;
 use craft\services\Assets;
 use craft\services\Utilities;
 use craftyhedge\craftthumbhash\jobs\GenerateThumbhash;
@@ -22,6 +24,7 @@ use craftyhedge\craftthumbhash\records\ThumbhashRecord;
 use craftyhedge\craftthumbhash\services\ThumbhashService;
 use craftyhedge\craftthumbhash\twig\Extension;
 use craftyhedge\craftthumbhash\utilities\ThumbhashUtility;
+use Psr\Log\LogLevel;
 use yii\base\Event;
 
 /**
@@ -30,6 +33,9 @@ use yii\base\Event;
 class Plugin extends BasePlugin
 {
     private const ASSET_TABLE_ATTR_PNG_PREVIEW = 'thumbhashPngPreview';
+    private const LOG_TARGET_NAME = 'thumbhash';
+    private const LOG_CATEGORY_PREFIX = 'craftyhedge\\craftthumbhash\\*';
+    private const LOG_CATEGORY_HANDLE = 'thumbhash';
 
     public string $schemaVersion = '1.0.0';
 
@@ -46,11 +52,40 @@ class Plugin extends BasePlugin
     {
         parent::init();
 
+        $this->registerLogTarget();
+
         if (Craft::$app->getRequest()->getIsSiteRequest()) {
             Craft::$app->getView()->registerTwigExtension(new Extension());
         }
 
         $this->registerEventListeners();
+    }
+
+    private function registerLogTarget(): void
+    {
+        $logDispatcher = Craft::$app->getLog();
+
+        foreach ($logDispatcher->targets as $target) {
+            if (
+                $target instanceof MonologTarget &&
+                in_array(self::LOG_CATEGORY_PREFIX, (array)$target->categories, true) &&
+                in_array(self::LOG_CATEGORY_HANDLE, (array)$target->categories, true)
+            ) {
+                return;
+            }
+        }
+
+        $logDispatcher->targets[] = Craft::createObject([
+            'class' => MonologTarget::class,
+            'name' => self::LOG_TARGET_NAME,
+            'categories' => [
+                self::LOG_CATEGORY_PREFIX,
+                self::LOG_CATEGORY_HANDLE,
+            ],
+            'level' => App::devMode() ? LogLevel::INFO : LogLevel::WARNING,
+            'allowLineBreaks' => App::devMode(),
+            'logContext' => false,
+        ]);
     }
 
     private function registerEventListeners(): void

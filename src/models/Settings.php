@@ -20,4 +20,31 @@ class Settings extends Model
      * Disable this to skip PNG creation and only store hash strings.
      */
     public bool $generateDataUrl = true;
+
+    /**
+     * Whether hash generation should use a Craft image transform as input.
+     * Useful when transforms are offloaded to an external image service.
+     */
+    public bool $useTransformSource = false;
+
+    /**
+     * Transform definition used when `useTransformSource` is enabled.
+     *
+     * @var array<string, mixed>
+     */
+    public array $sourceTransform = [
+        'mode' => 'fit',
+        'width' => 100,
+        'height' => 100,
+    ];
+
+    /**
+     * Maximum retry attempts when transform source is not ready.
+     */
+    public int $transformSourceMaxAttempts = 4;
+
+    /**
+     * Delay in seconds between transform source retries.
+     */
+    public int $transformSourceRetryDelay = 15;
 }

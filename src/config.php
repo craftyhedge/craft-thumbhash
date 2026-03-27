@@ -16,4 +16,22 @@ return [
     // Set to false to disable PNG creation and only store hash strings.
     // Default: true
     // 'generateDataUrl' => true,
+
+    // Use a Craft transform URL as the source image for hash generation.
+    // Helpful when transforms are offloaded to an external image service.
+    // Default: false
+    // 'useTransformSource' => false,
+
+    // Transform definition used when useTransformSource is enabled.
+    // Default: fit 100x100
+    // 'sourceTransform' => [
+    //     'mode' => 'fit',
+    //     'width' => 100,
+    //     'height' => 100,
+    // ],
+
+    // Retry behavior when the transform source is not ready yet.
+    // Default: 4 attempts with 15s delay
+    // 'transformSourceMaxAttempts' => 4,
+    // 'transformSourceRetryDelay' => 15,
 ];

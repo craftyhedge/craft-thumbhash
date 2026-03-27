@@ -65,6 +65,7 @@ class GenerateController extends Controller
 
         $service = Plugin::getInstance()->thumbhash;
         $generateDataUrl = $service->shouldGenerateDataUrl();
+        $useTransformSource = $service->shouldUseTransformSource();
         $done = 0;
         $skipped = 0;
         $errors = 0;
@@ -84,7 +85,13 @@ class GenerateController extends Controller
                 continue;
             }
 
-            $generated = $service->generateHashPayload($asset, $generateDataUrl);
+            $result = $service->generateHashPayloadWithStatus($asset, $generateDataUrl, $useTransformSource);
+
+            if (($result['status'] === 'pending' || $result['status'] === 'failed') && $useTransformSource) {
+                $result = $service->generateHashPayloadWithStatus($asset, $generateDataUrl, false);
+            }
+
+            $generated = $result['payload'];
 
             if ($generated !== null) {
                 $service->saveHashForAsset($asset, $generated['hash'], $generated['dataUrl']);

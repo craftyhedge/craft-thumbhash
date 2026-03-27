@@ -151,6 +151,25 @@ return [
     // Used for inline placeholders without JavaScript. Set to false to disable PNG creation.
     // Default: true
     // 'generateDataUrl' => true,
+
+    // Use a Craft image transform as the source for hash generation.
+    // Helpful when transforms are offloaded to an external image service.
+    // Default: false
+    // 'useTransformSource' => false,
+
+    // Transform definition used when useTransformSource is enabled.
+    // Default: fit 100x100
+    // 'sourceTransform' => [
+    //     'mode' => 'fit',
+    //     'width' => 100,
+    //     'height' => 100,
+    // ],
+
+    // Retry behavior when transform source is not ready yet.
+    // After max attempts, generation falls back to direct source processing.
+    // Defaults: 4 attempts with 15s delay
+    // 'transformSourceMaxAttempts' => 4,
+    // 'transformSourceRetryDelay' => 15,
 ];
 ```
 
@@ -199,6 +218,17 @@ The included JS decoder:
 - **Animated GIFs** — only the first frame is hashed
 - **Imagick is preferred** over GD for proper 8-bit alpha channel support
 - Hashes are stored in a custom `thumbhashes` DB table with a foreign key cascade to the elements table
+
+## Logging
+
+This plugin registers its own log target and writes to:
+
+- `storage/logs/thumbhash-YYYY-MM-DD.log`
+
+Notes:
+- In dev mode, info/warning/error messages are logged. In non-dev mode, warning/error messages are logged.
+- If no matching plugin messages were emitted, the file may not be created/updated yet.
+- If `CRAFT_STREAM_LOG=true`, Craft streams Monolog logs to stdout/stderr instead of files.
 
 ## License
 

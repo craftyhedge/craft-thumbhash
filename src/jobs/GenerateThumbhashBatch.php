@@ -2,6 +2,7 @@
 
 namespace craftyhedge\craftthumbhash\jobs;
 
+use craft\helpers\Queue as QueueHelper;
 use craft\base\Batchable;
 use craft\db\QueryBatcher;
 use craft\elements\Asset;
@@ -37,12 +38,30 @@ class GenerateThumbhashBatch extends BaseBatchedJob
 
         $service = Plugin::getInstance()->thumbhash;
         $generateDataUrl = $service->shouldGenerateDataUrl();
+        $useTransformSource = $service->shouldUseTransformSource();
 
         if ($service->isAssetCurrent($item, $generateDataUrl)) {
             return;
         }
 
-        $generated = $service->generateHashPayload($item, $generateDataUrl);
+        $result = $service->generateHashPayloadWithStatus($item, $generateDataUrl, $useTransformSource);
+
+        if ($result['status'] === 'pending' && $useTransformSource) {
+            QueueHelper::push(
+                new GenerateThumbhash([
+                    'assetId' => (int)$item->id,
+                    'transformAttempt' => 1,
+                ]),
+                delay: $service->transformSourceRetryDelaySeconds(),
+            );
+            return;
+        }
+
+        if ($result['status'] === 'failed' && $useTransformSource) {
+            $result = $service->generateHashPayloadWithStatus($item, $generateDataUrl, false);
+        }
+
+        $generated = $result['payload'];
 
         if ($generated !== null) {
             $service->saveHashForAsset($item, $generated['hash'], $generated['dataUrl']);

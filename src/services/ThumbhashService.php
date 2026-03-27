@@ -4,6 +4,7 @@ namespace craftyhedge\craftthumbhash\services;
 
 use Craft;
 use craft\elements\Asset;
+use craft\helpers\UrlHelper;
 use Thumbhash\Thumbhash;
 use craftyhedge\craftthumbhash\Plugin;
 use craftyhedge\craftthumbhash\records\ThumbhashRecord;
@@ -12,6 +13,10 @@ use yii\base\Component;
 
 class ThumbhashService extends Component
 {
+    private const PAYLOAD_STATUS_READY = 'ready';
+    private const PAYLOAD_STATUS_PENDING = 'pending';
+    private const PAYLOAD_STATUS_FAILED = 'failed';
+
     /**
      * In-memory cache for data URLs within the same request.
      */
@@ -34,16 +39,54 @@ class ThumbhashService extends Component
      */
     public function generateHashPayload(Asset $asset, bool $generateDataUrl = false): ?array
     {
+        $result = $this->generateHashPayloadWithStatus(
+            $asset,
+            $generateDataUrl,
+            $this->shouldUseTransformSource(),
+        );
+
+        return $result['payload'];
+    }
+
+    /**
+     * Generate hash data and return status metadata for queue retry behavior.
+     *
+     * @return array{status: string, payload: array{hash: string, dataUrl: ?string}|null}
+     */
+    public function generateHashPayloadWithStatus(
+        Asset $asset,
+        bool $generateDataUrl = false,
+        bool $useTransformSource = false,
+    ): array {
         if ($asset->kind !== Asset::KIND_IMAGE) {
-            return null;
+            return [
+                'status' => self::PAYLOAD_STATUS_FAILED,
+                'payload' => null,
+            ];
         }
 
         // Skip SVGs — can't rasterize to pixels
         $extension = strtolower($asset->getExtension());
         if ($extension === 'svg') {
-            return null;
+            return [
+                'status' => self::PAYLOAD_STATUS_FAILED,
+                'payload' => null,
+            ];
         }
 
+        if ($useTransformSource) {
+            $result = $this->generateHashPayloadFromTransform($asset, $generateDataUrl);
+
+            if ($result['status'] !== self::PAYLOAD_STATUS_FAILED) {
+                return $result;
+            }
+        }
+
+        return $this->generateHashPayloadFromOriginal($asset, $generateDataUrl);
+    }
+
+    private function generateHashPayloadFromOriginal(Asset $asset, bool $generateDataUrl): array
+    {
         $tempPath = null;
 
         try {
@@ -52,41 +95,319 @@ class ThumbhashService extends Component
 
             if (!$tempPath || !file_exists($tempPath)) {
                 Craft::warning("ThumbHash: Could not get copy of file for asset {$asset->id}", __METHOD__);
-                return null;
+                return [
+                    'status' => self::PAYLOAD_STATUS_FAILED,
+                    'payload' => null,
+                ];
             }
 
-            // Resize and extract RGBA pixels
-            if (extension_loaded('imagick')) {
-                $rgba = $this->extractRgbaImagick($tempPath);
-            } elseif (extension_loaded('gd')) {
-                $rgba = $this->extractRgbaGd($tempPath);
-            } else {
-                Craft::error('ThumbHash: Neither Imagick nor GD extension is available.', __METHOD__);
-                return null;
-            }
-
-            if ($rgba === null) {
-                return null;
-            }
-
-            [$width, $height, $pixels] = $rgba;
-
-            $hashArray = Thumbhash::RGBAToHash($width, $height, $pixels);
-            $hash = Thumbhash::convertHashToString($hashArray);
-            $dataUrl = $generateDataUrl ? Thumbhash::toDataURL($hashArray) : null;
+            $payload = $this->generateHashPayloadFromPath($asset, $tempPath, $generateDataUrl);
 
             return [
-                'hash' => $hash,
-                'dataUrl' => $dataUrl,
+                'status' => $payload === null ? self::PAYLOAD_STATUS_FAILED : self::PAYLOAD_STATUS_READY,
+                'payload' => $payload,
             ];
         } catch (\Throwable $e) {
             Craft::error("ThumbHash: Error generating hash for asset {$asset->id}: {$e->getMessage()}", __METHOD__);
-            return null;
+            return [
+                'status' => self::PAYLOAD_STATUS_FAILED,
+                'payload' => null,
+            ];
         } finally {
             if ($tempPath && file_exists($tempPath)) {
                 unlink($tempPath);
             }
         }
+    }
+
+    private function generateHashPayloadFromTransform(Asset $asset, bool $generateDataUrl): array
+    {
+        try {
+            $transformUrl = $asset->getUrl($this->getSourceTransformDefinition(), true);
+
+            if (!$transformUrl) {
+                Craft::info("ThumbHash: Transform URL not ready for asset {$asset->id}.", 'thumbhash');
+                return [
+                    'status' => self::PAYLOAD_STATUS_PENDING,
+                    'payload' => null,
+                ];
+            }
+
+            $bytes = $this->fetchTransformBytes($transformUrl, (int)$asset->id);
+
+            if ($bytes === null) {
+                Craft::info("ThumbHash: Transform bytes unavailable for asset {$asset->id} (will retry/fallback).", 'thumbhash');
+                return [
+                    'status' => self::PAYLOAD_STATUS_PENDING,
+                    'payload' => null,
+                ];
+            }
+
+            $tempPath = tempnam(sys_get_temp_dir(), 'thumbhash_tf_');
+            if (!$tempPath) {
+                return [
+                    'status' => self::PAYLOAD_STATUS_FAILED,
+                    'payload' => null,
+                ];
+            }
+
+            try {
+                if (file_put_contents($tempPath, $bytes) === false) {
+                    return [
+                        'status' => self::PAYLOAD_STATUS_FAILED,
+                        'payload' => null,
+                    ];
+                }
+
+                $payload = $this->generateHashPayloadFromPath($asset, $tempPath, $generateDataUrl);
+
+                return [
+                    'status' => $payload === null ? self::PAYLOAD_STATUS_FAILED : self::PAYLOAD_STATUS_READY,
+                    'payload' => $payload,
+                ];
+            } finally {
+                if (file_exists($tempPath)) {
+                    unlink($tempPath);
+                }
+            }
+        } catch (\Throwable $e) {
+            Craft::warning("ThumbHash: Transform source failed for asset {$asset->id}: {$e->getMessage()}", __METHOD__);
+
+            return [
+                'status' => self::PAYLOAD_STATUS_FAILED,
+                'payload' => null,
+            ];
+        }
+    }
+
+    private function generateHashPayloadFromPath(Asset $asset, string $path, bool $generateDataUrl): ?array
+    {
+        // Resize and extract RGBA pixels
+        if (extension_loaded('imagick')) {
+            $rgba = $this->extractRgbaImagick($path);
+        } elseif (extension_loaded('gd')) {
+            $rgba = $this->extractRgbaGd($path);
+        } else {
+            Craft::error('ThumbHash: Neither Imagick nor GD extension is available.', __METHOD__);
+            return null;
+        }
+
+        if ($rgba === null) {
+            return null;
+        }
+
+        [$width, $height, $pixels] = $rgba;
+
+        $hashArray = Thumbhash::RGBAToHash($width, $height, $pixels);
+        $hash = Thumbhash::convertHashToString($hashArray);
+        $dataUrl = $generateDataUrl ? Thumbhash::toDataURL($hashArray) : null;
+
+        return [
+            'hash' => $hash,
+            'dataUrl' => $dataUrl,
+        ];
+    }
+
+    private function fetchTransformBytes(string $url, ?int $assetId = null): ?string
+    {
+        $normalizedUrl = $this->normalizeTransformUrl($url);
+
+        if (!$normalizedUrl) {
+            $assetLabel = $assetId !== null ? " for asset {$assetId}" : '';
+            Craft::info("ThumbHash: Transform URL could not be normalized{$assetLabel}.", 'thumbhash');
+            return null;
+        }
+
+        $assetLabel = $assetId !== null ? " for asset {$assetId}" : '';
+        Craft::info("ThumbHash: Fetching transform URL{$assetLabel}: {$normalizedUrl}", 'thumbhash');
+
+        try {
+            if (str_starts_with($normalizedUrl, 'file://')) {
+                $path = substr($normalizedUrl, 7);
+                if (!is_file($path)) {
+                    Craft::info("ThumbHash: Transform file missing{$assetLabel}: {$path}", 'thumbhash');
+                    return null;
+                }
+
+                $bytes = file_get_contents($path);
+                if ($bytes === false) {
+                    Craft::warning("ThumbHash: Failed reading transform file{$assetLabel}: {$path}", 'thumbhash');
+                }
+                return $bytes === false ? null : $bytes;
+            }
+
+            if (is_file($normalizedUrl)) {
+                $bytes = file_get_contents($normalizedUrl);
+                if ($bytes === false) {
+                    Craft::warning("ThumbHash: Failed reading local transform path{$assetLabel}: {$normalizedUrl}", 'thumbhash');
+                }
+                return $bytes === false ? null : $bytes;
+            }
+
+            $client = Craft::createGuzzleClient([
+                'timeout' => 20,
+                'connect_timeout' => 5,
+                'http_errors' => false,
+            ]);
+
+            $response = $client->get($normalizedUrl);
+            $statusCode = $response->getStatusCode();
+
+            if ($statusCode < 200 || $statusCode >= 300) {
+                Craft::info("ThumbHash: Transform fetch returned HTTP {$statusCode}{$assetLabel}: {$normalizedUrl}", 'thumbhash');
+                return null;
+            }
+
+            $bytes = (string)$response->getBody();
+
+            if ($bytes === '') {
+                Craft::info("ThumbHash: Transform fetch returned empty body{$assetLabel}: {$normalizedUrl}", 'thumbhash');
+            }
+
+            return $bytes !== '' ? $bytes : null;
+        } catch (\Throwable $e) {
+            Craft::warning("ThumbHash: Transform fetch error{$assetLabel}: {$e->getMessage()}", 'thumbhash');
+            return null;
+        }
+    }
+
+    private function normalizeTransformUrl(string $url): ?string
+    {
+        $trimmed = trim($url);
+        if ($trimmed === '') {
+            return null;
+        }
+
+        if (preg_match('/^https?:\/\//i', $trimmed)) {
+            return $trimmed;
+        }
+
+        if (str_starts_with($trimmed, '//')) {
+            return $this->siteScheme() . ':' . $trimmed;
+        }
+
+        if (str_starts_with($trimmed, 'file://')) {
+            return $trimmed;
+        }
+
+        if (str_starts_with($trimmed, '/')) {
+            $base = $this->siteBaseUrl();
+            if ($base !== null) {
+                return rtrim($base, '/') . $trimmed;
+            }
+
+            return UrlHelper::siteUrl(ltrim($trimmed, '/'));
+        }
+
+        return UrlHelper::siteUrl($trimmed);
+    }
+
+    private function siteScheme(): string
+    {
+        $request = Craft::$app->getRequest();
+        if ($request !== null && method_exists($request, 'getIsSecureConnection') && $request->getIsSecureConnection()) {
+            return 'https';
+        }
+
+        $base = $this->siteBaseUrl();
+        if ($base !== null) {
+            $parts = parse_url($base);
+            if (is_array($parts) && isset($parts['scheme']) && is_string($parts['scheme'])) {
+                return strtolower($parts['scheme']);
+            }
+        }
+
+        return 'https';
+    }
+
+    private function siteBaseUrl(): ?string
+    {
+        try {
+            $base = UrlHelper::siteUrl('');
+
+            if (!is_string($base) || $base === '') {
+                return null;
+            }
+
+            $parts = parse_url($base);
+            if (!is_array($parts) || !isset($parts['host'])) {
+                return null;
+            }
+
+            $scheme = isset($parts['scheme']) && is_string($parts['scheme'])
+                ? strtolower($parts['scheme'])
+                : $this->siteScheme();
+            $host = $parts['host'];
+            $port = isset($parts['port']) ? ':' . $parts['port'] : '';
+
+            return $scheme . '://' . $host . $port;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * Whether generation should use a Craft transform as source.
+     */
+    public function shouldUseTransformSource(): bool
+    {
+        $plugin = Plugin::getInstance();
+
+        if ($plugin === null) {
+            return false;
+        }
+
+        return (bool)$plugin->getSettings()->useTransformSource;
+    }
+
+    /**
+     * Transform definition used for transform-source mode.
+     *
+     * @return array<string, mixed>
+     */
+    public function getSourceTransformDefinition(): array
+    {
+        $plugin = Plugin::getInstance();
+
+        if ($plugin === null) {
+            return [
+                'mode' => 'fit',
+                'width' => 100,
+                'height' => 100,
+            ];
+        }
+
+        $transform = $plugin->getSettings()->sourceTransform;
+
+        if (!is_array($transform) || empty($transform)) {
+            return [
+                'mode' => 'fit',
+                'width' => 100,
+                'height' => 100,
+            ];
+        }
+
+        return $transform;
+    }
+
+    public function transformSourceMaxAttempts(): int
+    {
+        $plugin = Plugin::getInstance();
+        if ($plugin === null) {
+            return 4;
+        }
+
+        return max(1, (int)$plugin->getSettings()->transformSourceMaxAttempts);
+    }
+
+    public function transformSourceRetryDelaySeconds(): int
+    {
+        $plugin = Plugin::getInstance();
+        if ($plugin === null) {
+            return 15;
+        }
+
+        return max(1, (int)$plugin->getSettings()->transformSourceRetryDelay);
     }
 
     /**
