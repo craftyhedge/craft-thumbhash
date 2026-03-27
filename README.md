@@ -61,11 +61,15 @@ The decoder script will decode each hash to a tiny PNG data URL and set it as th
 <img data-thumbhash="{{ hash }}" data-src="{{ asset.url }}" alt="{{ asset.title }}" width="{{ asset.width }}" height="{{ asset.height }}" />
 ```
 
-If you want to use the hash with a CSS background instead of inlining `thumbhashDataUrl()`, pass the hash directly to `data-thumbhash-bg`. The decoder will populate `style.backgroundImage` and apply the configured background placeholder styles for you. By default that is `background-repeat: no-repeat`, `background-size: cover`, and `background-position: center`:
+### Smooth Load Transitions
+
+Lazysizes example:
+
+To achieve a nice smooth fade use the hash with a CSS background. 
+
+Pass the hash directly to `data-thumbhash-bg`. The decoder will populate `style.backgroundImage` and apply the configured background placeholder styles for you. By default that is `background-repeat: no-repeat`, `background-size: cover`, and `background-position: center`.
 
 ```twig
-{{ thumbhashScript() }}
-
 {% set hash = thumbhash(asset) %}
 
 <div class="relative z-0 w-full h-auto" data-thumbhash-bg="{{ hash }}">
@@ -78,6 +82,25 @@ If you want to use the hash with a CSS background instead of inlining `thumbhash
 </div>
 ```
 
+For the no JS decoding option, you can use `thumbhashDataUrl()` to get the decoded PNG data URL directly and set it as an inline background image:
+
+```twig
+{% set placeholder = thumbhashDataUrl(asset) %}
+
+<div class="relative z-0 w-full h-auto" style="background-image: url('{{ placeholder }}'); background-repeat: no-repeat; background-size: cover; background-position: center;">
+    <img
+        class="relative z-10 block w-full h-auto lazyload"
+        width="{{ asset.width }}"
+        height="{{ asset.height }}"
+        data-src="{{ asset.getUrl() }}"
+    />
+</div>
+```
+
+### CSS for Lazyloading Class Swaps
+
+Lazysizes example:
+
 ```css
 img.lazyload,
 img.lazyloading {
@@ -86,7 +109,7 @@ img.lazyloading {
 
 img.lazyloaded {
     @apply opacity-100;
-    animation: lazy-image-fade-in 700ms ease-out both;
+    animation: lazy-image-fade-in 500ms ease-out both;
 }
 
 @keyframes lazy-image-fade-in {
