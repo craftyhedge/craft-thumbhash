@@ -7,6 +7,7 @@ use craft\base\Element;
 use craft\base\Model;
 use craft\base\Plugin as BasePlugin;
 use craft\elements\Asset;
+use craft\events\DefineAttributeHtmlEvent;
 use craft\events\DefineMetadataEvent;
 use craft\events\ModelEvent;
 use craft\events\RegisterElementDefaultTableAttributesEvent;
@@ -64,6 +65,12 @@ class Plugin extends BasePlugin
     private function registerLogTarget(): void
     {
         $logDispatcher = Craft::$app->getLog();
+        /** @var Settings $settings */
+        $settings = $this->getSettings();
+        $logDebug = (bool)$settings->logDebug;
+        $logLevel = App::devMode()
+            ? ($logDebug ? LogLevel::DEBUG : LogLevel::INFO)
+            : LogLevel::WARNING;
 
         foreach ($logDispatcher->targets as $target) {
             if (
@@ -71,6 +78,9 @@ class Plugin extends BasePlugin
                 in_array(self::LOG_CATEGORY_PREFIX, (array)$target->categories, true) &&
                 in_array(self::LOG_CATEGORY_HANDLE, (array)$target->categories, true)
             ) {
+                $target->level = $logLevel;
+                $target->allowLineBreaks = App::devMode();
+                $target->logContext = false;
                 return;
             }
         }
@@ -82,7 +92,7 @@ class Plugin extends BasePlugin
                 self::LOG_CATEGORY_PREFIX,
                 self::LOG_CATEGORY_HANDLE,
             ],
-            'level' => App::devMode() ? LogLevel::INFO : LogLevel::WARNING,
+            'level' => $logLevel,
             'allowLineBreaks' => App::devMode(),
             'logContext' => false,
         ]);
@@ -90,15 +100,9 @@ class Plugin extends BasePlugin
 
     private function registerEventListeners(): void
     {
-        $registerUtilitiesEvent = defined(Utilities::class . '::EVENT_REGISTER_UTILITIES')
-            ? constant(Utilities::class . '::EVENT_REGISTER_UTILITIES')
-            : (defined(Utilities::class . '::EVENT_REGISTER_UTILITY_TYPES')
-                ? constant(Utilities::class . '::EVENT_REGISTER_UTILITY_TYPES')
-                : 'registerUtilityTypes');
-
         Event::on(
             Utilities::class,
-            $registerUtilitiesEvent,
+            Utilities::EVENT_REGISTER_UTILITIES,
             function(RegisterComponentTypesEvent $event) {
                 $event->types[] = ThumbhashUtility::class;
             },
@@ -198,49 +202,41 @@ class Plugin extends BasePlugin
             },
         );
 
-        $setTableAttributeHtmlEvent = defined(Element::class . '::EVENT_DEFINE_ATTRIBUTE_HTML')
-            ? constant(Element::class . '::EVENT_DEFINE_ATTRIBUTE_HTML')
-            : (defined(Element::class . '::EVENT_SET_TABLE_ATTRIBUTE_HTML')
-                ? constant(Element::class . '::EVENT_SET_TABLE_ATTRIBUTE_HTML')
-                : null);
+        Event::on(
+            Asset::class,
+            Element::EVENT_DEFINE_ATTRIBUTE_HTML,
+            function(DefineAttributeHtmlEvent $event) {
+                if ($event->attribute !== self::ASSET_TABLE_ATTR_PNG_PREVIEW) {
+                    return;
+                }
 
-        if ($setTableAttributeHtmlEvent !== null) {
-            Event::on(
-                Asset::class,
-                $setTableAttributeHtmlEvent,
-                function($event) {
-                    if (!isset($event->attribute) || $event->attribute !== self::ASSET_TABLE_ATTR_PNG_PREVIEW) {
-                        return;
-                    }
+                if (!$this->shouldShowPngPreviewColumn()) {
+                    $event->html = '';
+                    return;
+                }
 
-                    if (!$this->shouldShowPngPreviewColumn()) {
-                        $event->html = '';
-                        return;
-                    }
+                /** @var Asset $asset */
+                $asset = $event->sender;
 
-                    /** @var Asset $asset */
-                    $asset = $event->sender;
+                if ($asset->kind !== Asset::KIND_IMAGE || strtolower($asset->getExtension()) === 'svg') {
+                    $event->html = Html::tag('span', '-', ['class' => 'light']);
+                    return;
+                }
 
-                    if ($asset->kind !== Asset::KIND_IMAGE || strtolower($asset->getExtension()) === 'svg') {
-                        $event->html = Html::tag('span', '-', ['class' => 'light']);
-                        return;
-                    }
+                /** @var ThumbhashRecord|null $record */
+                $record = ThumbhashRecord::findOne(['assetId' => (int)$asset->id]);
+                $dataUrl = $record?->dataUrl;
 
-                    /** @var ThumbhashRecord|null $record */
-                    $record = ThumbhashRecord::findOne(['assetId' => (int)$asset->id]);
-                    $dataUrl = $record?->dataUrl;
-
-                    $event->html = $dataUrl && str_starts_with($dataUrl, 'data:image/')
-                        ? Html::img($dataUrl, [
-                            'alt' => '',
-                            'width' => 32,
-                            'height' => 32,
-                            'style' => 'display:block; width:32px; height:32px; object-fit:contain; border-radius:4px;',
-                        ])
-                        : Html::tag('span', '-', ['class' => 'light']);
-                },
-            );
-        }
+                $event->html = $dataUrl && str_starts_with($dataUrl, 'data:image/')
+                    ? Html::img($dataUrl, [
+                        'alt' => '',
+                        'width' => 32,
+                        'height' => 32,
+                        'style' => 'display:block; width:32px; height:32px; object-fit:contain; border-radius:4px;',
+                    ])
+                    : Html::tag('span', '-', ['class' => 'light']);
+            },
+        );
 
         // Generate thumbhash when a new image asset is created
         Event::on(

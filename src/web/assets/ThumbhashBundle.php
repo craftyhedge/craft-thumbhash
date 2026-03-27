@@ -10,7 +10,7 @@ class ThumbhashBundle extends AssetBundle
     {
         $this->sourcePath = __DIR__ . '/dist';
         $this->js = ['thumbhash-decode.js'];
-        $this->jsOptions = ['defer' => true];
+        $this->jsOptions = ['defer' => false];
 
         parent::init();
     }

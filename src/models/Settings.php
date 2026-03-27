@@ -14,7 +14,6 @@ class Settings extends Model
      * @var string[]|string|null
      */
     public array|string|null $volumes = '*';
-
     /**
      * Whether to generate and store decoded PNG data URLs.
      * Disable this to skip PNG creation and only store hash strings.
@@ -22,10 +21,27 @@ class Settings extends Model
     public bool $generateDataUrl = true;
 
     /**
+     * Whether ThumbHash PNG data URLs should use compressed encoding.
+     * If disabled, falls back to the library's standard uncompressed encoder.
+     */
+    public bool $pngCompressionEnabled = true;
+
+    /**
+     * PNG compression level for encoded data URLs (0-9).
+     * Higher values are smaller but slower to encode.
+     */
+    public int $pngCompressionLevel = 9;
+
+    /**
+     * Whether metadata should be stripped from Imagick-encoded PNG output.
+     */
+    public bool $pngStripMetadata = true;
+
+    /**
      * Whether hash generation should use a Craft image transform as input.
      * Useful when transforms are offloaded to an external image service.
      */
-    public bool $useTransformSource = false;
+    public bool $useTransformSource = true;
 
     /**
      * Transform definition used when `useTransformSource` is enabled.
@@ -47,4 +63,9 @@ class Settings extends Model
      * Delay in seconds between transform source retries.
      */
     public int $transformSourceRetryDelay = 15;
+
+    /**
+     * Whether to include debug-level plugin logs in dev mode.
+     */
+    public bool $logDebug = false;
 }

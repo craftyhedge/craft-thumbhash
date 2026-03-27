@@ -4,13 +4,22 @@ Automatic [ThumbHash](https://evanw.github.io/thumbhash/) placeholder generation
 
 ## What is ThumbHash?
 
-ThumbHash is a compact representation of an image placeholder (~28 bytes). The hash is stored inline in your HTML and decoded instantly by JavaScript in the browser — no extra HTTP requests needed.
+ThumbHash is a compact image placeholder. 
+
+For the lightest HTML payload, use the base64 hash string with the included client-side JS decoder. (recommended)
+
+For zero-JavaScript placeholders, use the pre-decoded PNG data URL (typically adds around ~1KB per image to HTML, depending on dimensions and content).
+
+PNG data URLs are often highly compressible with gzip or Brotli.
+
+The JS decoder is typically very fast for small hashes, and because the script is deferred it does not block initial HTML parsing. Decoding still runs on the main thread, so total cost scales with the number of placeholders.
 
 ## Requirements
 
-- Craft CMS 4.4+ or 5.0+
+- Craft CMS 5.0+
 - PHP 8.2+
-- Imagick extension (recommended) or GD
+- Imagick extension (recommended) or GD for fallback (note: GD's alpha channel support is limited to 1-bit transparency, so results may be less smooth)
+- External transform service recommended for best performance (e.g. Imgix, Cloudflare Images)
 
 ## Installation
 
@@ -110,7 +119,7 @@ If you prefer to skip the JS decoder entirely, use `thumbhashDataUrl()` to inlin
 <img src="{{ placeholder }}" data-src="{{ asset.url }}" alt="{{ asset.title }}" width="{{ asset.width }}" height="{{ asset.height }}" />
 ```
 
-This adds ~300 bytes per image to your HTML (vs ~40 bytes for the hash attribute), but placeholders are visible on first paint with zero JavaScript. The data URL is pre-computed and stored in the database alongside the hash — no runtime decode cost.
+This adds around ~0.8-2KB per image to your HTML (vs ~40 bytes for the hash attribute), but placeholders are visible on first paint with zero JavaScript. The data URL is pre-computed and stored in the database alongside the hash. Stored values are PNG-compressed when available, with a fallback to the standard ThumbHash encoder.
 
 ### Template Functions
 
@@ -147,15 +156,30 @@ return [
     // Used with the client-side JS decoder. Default: true
     // 'generateHash' => true,
 
-    // Generate and store the decoded PNG data URL (~300 bytes per asset).
+    // Generate and store the decoded PNG data URL (typically ~0.8-2KB per asset).
     // Used for inline placeholders without JavaScript. Set to false to disable PNG creation.
     // Default: true
     // 'generateDataUrl' => true,
 
+    // Use PNG compression for generated data URLs.
+    // If false, uses the standard uncompressed ThumbHash PNG encoder.
+    // Default: true
+    // 'pngCompressionEnabled' => true,
+
+    // PNG compression level for generated data URLs (0-9).
+    // Higher values reduce size but are slower to encode.
+    // Default: 9
+    // 'pngCompressionLevel' => 9,
+
+    // Strip metadata from Imagick-generated PNGs.
+    // Ignored when Imagick is unavailable.
+    // Default: true
+    // 'pngStripMetadata' => true,
+
     // Use a Craft image transform as the source for hash generation.
     // Helpful when transforms are offloaded to an external image service.
-    // Default: false
-    // 'useTransformSource' => false,
+    // Default: true
+    // 'useTransformSource' => true,
 
     // Transform definition used when useTransformSource is enabled.
     // Default: fit 100x100
@@ -170,6 +194,62 @@ return [
     // Defaults: 4 attempts with 15s delay
     // 'transformSourceMaxAttempts' => 4,
     // 'transformSourceRetryDelay' => 15,
+
+    // Include debug-level plugin logs when dev mode is enabled.
+    // Default: false
+    // 'logDebug' => false,
+];
+```
+
+### Transform Source
+For the best server performance, it is recommended to use an external transform service like Imgix or Cloudflare Images.
+
+To ensure ThumbHash works with those transform services a plugin is needed to replace the native Craft transform service.
+
+#### Imgixer
+
+[Imgixer](https://github.com/croxton/imgixer/) is a Craft plugin that provides an Imgix transform source. If you're using Imgixer, you can configure it as the transform source for ThumbHash.
+
+If you are using Imgixer for Craft transforms, configure an Imgix source in `config/imgixer.php` and point Imgixer's transform source to it:
+
+```php
+<?php
+
+use craft\helpers\App;
+
+return [
+    'sources' => [
+        'imgix' => [
+            'provider' => 'imgix',
+            'endpoint' => App::env('IMGIX_DOMAIN'),
+            'privateKey' => App::env('IMGIX_KEY'),
+            'signed' => true,
+            'defaultParams' => ['auto' => 'compress,format'],
+        ],
+        'assetTransforms' => [
+            'provider' => 'imgix',
+            'endpoint' => App::env('IMGIX_DOMAIN'),
+            'privateKey' => App::env('IMGIX_KEY'),
+            'signed' => true,
+            'defaultParams' => ['auto' => 'compress,format'],
+        ],
+    ],
+    'transformSource' => 'assetTransforms',
+];
+```
+
+You can disable transform-source mode for ThumbHash in `config/thumbhash.php` to fall back to the original source file, but this will lead to increased server load and slower generation times:
+
+```php
+<?php
+
+return [
+    'useTransformSource' => false,
+    'sourceTransform' => [
+        'mode' => 'fit',
+        'width' => 100,
+        'height' => 100,
+    ],
 ];
 ```
 
@@ -226,9 +306,9 @@ This plugin registers its own log target and writes to:
 - `storage/logs/thumbhash-YYYY-MM-DD.log`
 
 Notes:
-- In dev mode, info/warning/error messages are logged. In non-dev mode, warning/error messages are logged.
-- If no matching plugin messages were emitted, the file may not be created/updated yet.
-- If `CRAFT_STREAM_LOG=true`, Craft streams Monolog logs to stdout/stderr instead of files.
+- In dev mode, info/warning/error messages are logged by default.
+- Set `logDebug` to `true` in `config/thumbhash.php` to include debug-level plugin events in dev mode.
+- In non-dev mode, warning/error messages are logged.
 
 ## License
 

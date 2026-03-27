@@ -7,9 +7,13 @@ use craft\elements\Asset;
 use craft\helpers\Queue as QueueHelper;
 use craft\queue\BaseJob;
 use craftyhedge\craftthumbhash\Plugin;
+use samdark\log\PsrMessage;
+use yii\log\Logger;
 
 class GenerateThumbhash extends BaseJob
 {
+    private const LOG_CATEGORY = 'thumbhash';
+
     public int $assetId;
     public int $transformAttempt = 0;
 
@@ -44,6 +48,16 @@ class GenerateThumbhash extends BaseJob
                 $nextAttempt = $this->transformAttempt + 1;
                 $delay = $service->transformSourceRetryDelaySeconds();
 
+                $this->logEvent('info', 'thumbhash.transform.retry.scheduled', [
+                    'assetId' => (int)$asset->id,
+                    'attempt' => $nextAttempt,
+                    'maxAttempts' => $maxAttempts,
+                    'delay' => $delay,
+                    'reason' => 'url_pending',
+                    'sourceMode' => 'transform',
+                    'generateDataUrl' => $generateDataUrl,
+                ]);
+
                 QueueHelper::push(
                     new self([
                         'assetId' => $this->assetId,
@@ -55,13 +69,31 @@ class GenerateThumbhash extends BaseJob
                 return;
             }
 
-            Craft::warning(
-                "ThumbHash: Transform source not ready after {$this->transformAttempt} attempts for asset {$asset->id}; falling back to direct source.",
-                __METHOD__,
-            );
+            $this->logEvent('warning', 'thumbhash.transform.retry.exhausted', [
+                'assetId' => (int)$asset->id,
+                'attempt' => $this->transformAttempt,
+                'maxAttempts' => $maxAttempts,
+                'reason' => 'url_pending',
+                'sourceMode' => 'transform',
+                'generateDataUrl' => $generateDataUrl,
+            ]);
+
+            $this->logEvent('warning', 'thumbhash.transform.fallback', [
+                'assetId' => (int)$asset->id,
+                'reason' => 'retry_exhausted',
+                'sourceMode' => 'original',
+                'generateDataUrl' => $generateDataUrl,
+            ]);
 
             $result = $service->generateHashPayloadWithStatus($asset, $generateDataUrl, false);
         } elseif ($result['status'] === 'failed' && $useTransformSource) {
+            $this->logEvent('warning', 'thumbhash.transform.fallback', [
+                'assetId' => (int)$asset->id,
+                'reason' => 'transform_failed',
+                'sourceMode' => 'original',
+                'generateDataUrl' => $generateDataUrl,
+            ]);
+
             $result = $service->generateHashPayloadWithStatus($asset, $generateDataUrl, false);
         }
 
@@ -77,5 +109,27 @@ class GenerateThumbhash extends BaseJob
     protected function defaultDescription(): ?string
     {
         return "ThumbHash: Generating asset {$this->assetId}";
+    }
+
+    private function logEvent(string $level, string $event, array $context = []): void
+    {
+        $message = new PsrMessage($event, $context);
+
+        if ($level === 'warning') {
+            Craft::warning($message, self::LOG_CATEGORY);
+            return;
+        }
+
+        if ($level === 'error') {
+            Craft::error($message, self::LOG_CATEGORY);
+            return;
+        }
+
+        if ($level === 'debug') {
+            Craft::getLogger()->log($message, Logger::LEVEL_TRACE, self::LOG_CATEGORY);
+            return;
+        }
+
+        Craft::info($message, self::LOG_CATEGORY);
     }
 }

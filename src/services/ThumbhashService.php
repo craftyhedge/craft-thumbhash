@@ -5,14 +5,17 @@ namespace craftyhedge\craftthumbhash\services;
 use Craft;
 use craft\elements\Asset;
 use craft\helpers\UrlHelper;
+use samdark\log\PsrMessage;
 use Thumbhash\Thumbhash;
 use craftyhedge\craftthumbhash\Plugin;
 use craftyhedge\craftthumbhash\records\ThumbhashRecord;
 use DateTimeInterface;
 use yii\base\Component;
+use yii\log\Logger;
 
 class ThumbhashService extends Component
 {
+    private const LOG_CATEGORY = 'thumbhash';
     private const PAYLOAD_STATUS_READY = 'ready';
     private const PAYLOAD_STATUS_PENDING = 'pending';
     private const PAYLOAD_STATUS_FAILED = 'failed';
@@ -58,7 +61,23 @@ class ThumbhashService extends Component
         bool $generateDataUrl = false,
         bool $useTransformSource = false,
     ): array {
+        $sourceMode = $useTransformSource ? 'transform' : 'original';
+        $assetId = (int)$asset->id;
+
+        $this->logEvent('debug', 'thumbhash.generate.start', [
+            'assetId' => $assetId,
+            'sourceMode' => $sourceMode,
+            'generateDataUrl' => $generateDataUrl,
+        ]);
+
         if ($asset->kind !== Asset::KIND_IMAGE) {
+            $this->logEvent('debug', 'thumbhash.generate.failure', [
+                'assetId' => $assetId,
+                'sourceMode' => $sourceMode,
+                'generateDataUrl' => $generateDataUrl,
+                'reason' => 'unsupported_kind',
+            ]);
+
             return [
                 'status' => self::PAYLOAD_STATUS_FAILED,
                 'payload' => null,
@@ -68,6 +87,13 @@ class ThumbhashService extends Component
         // Skip SVGs — can't rasterize to pixels
         $extension = strtolower($asset->getExtension());
         if ($extension === 'svg') {
+            $this->logEvent('debug', 'thumbhash.generate.failure', [
+                'assetId' => $assetId,
+                'sourceMode' => $sourceMode,
+                'generateDataUrl' => $generateDataUrl,
+                'reason' => 'svg_unsupported',
+            ]);
+
             return [
                 'status' => self::PAYLOAD_STATUS_FAILED,
                 'payload' => null,
@@ -88,13 +114,20 @@ class ThumbhashService extends Component
     private function generateHashPayloadFromOriginal(Asset $asset, bool $generateDataUrl): array
     {
         $tempPath = null;
+        $assetId = (int)$asset->id;
 
         try {
             // Copy the asset to a temp file
             $tempPath = $asset->getCopyOfFile();
 
             if (!$tempPath || !file_exists($tempPath)) {
-                Craft::warning("ThumbHash: Could not get copy of file for asset {$asset->id}", __METHOD__);
+                $this->logEvent('warning', 'thumbhash.generate.failure', [
+                    'assetId' => $assetId,
+                    'sourceMode' => 'original',
+                    'generateDataUrl' => $generateDataUrl,
+                    'reason' => 'local_file_missing',
+                ]);
+
                 return [
                     'status' => self::PAYLOAD_STATUS_FAILED,
                     'payload' => null,
@@ -103,12 +136,34 @@ class ThumbhashService extends Component
 
             $payload = $this->generateHashPayloadFromPath($asset, $tempPath, $generateDataUrl);
 
+            if ($payload === null) {
+                $this->logEvent('warning', 'thumbhash.generate.failure', [
+                    'assetId' => $assetId,
+                    'sourceMode' => 'original',
+                    'generateDataUrl' => $generateDataUrl,
+                    'reason' => 'extract_failed',
+                ]);
+            } else {
+                $this->logEvent('debug', 'thumbhash.generate.success', [
+                    'assetId' => $assetId,
+                    'sourceMode' => 'original',
+                    'generateDataUrl' => $generateDataUrl,
+                ]);
+            }
+
             return [
                 'status' => $payload === null ? self::PAYLOAD_STATUS_FAILED : self::PAYLOAD_STATUS_READY,
                 'payload' => $payload,
             ];
         } catch (\Throwable $e) {
-            Craft::error("ThumbHash: Error generating hash for asset {$asset->id}: {$e->getMessage()}", __METHOD__);
+            $this->logEvent('error', 'thumbhash.generate.failure', [
+                'assetId' => $assetId,
+                'sourceMode' => 'original',
+                'generateDataUrl' => $generateDataUrl,
+                'reason' => 'read_failed',
+                'exceptionType' => $e::class,
+            ]);
+
             return [
                 'status' => self::PAYLOAD_STATUS_FAILED,
                 'payload' => null,
@@ -122,21 +177,35 @@ class ThumbhashService extends Component
 
     private function generateHashPayloadFromTransform(Asset $asset, bool $generateDataUrl): array
     {
+        $assetId = (int)$asset->id;
+
         try {
             $transformUrl = $asset->getUrl($this->getSourceTransformDefinition(), true);
 
             if (!$transformUrl) {
-                Craft::info("ThumbHash: Transform URL not ready for asset {$asset->id}.", 'thumbhash');
+                $this->logEvent('info', 'thumbhash.transform.url_pending', [
+                    'assetId' => $assetId,
+                    'sourceMode' => 'transform',
+                    'generateDataUrl' => $generateDataUrl,
+                    'reason' => 'url_pending',
+                ]);
+
                 return [
                     'status' => self::PAYLOAD_STATUS_PENDING,
                     'payload' => null,
                 ];
             }
 
-            $bytes = $this->fetchTransformBytes($transformUrl, (int)$asset->id);
+            $bytes = $this->fetchTransformBytes($transformUrl, $assetId);
 
             if ($bytes === null) {
-                Craft::info("ThumbHash: Transform bytes unavailable for asset {$asset->id} (will retry/fallback).", 'thumbhash');
+                $this->logEvent('info', 'thumbhash.generate.failure', [
+                    'assetId' => $assetId,
+                    'sourceMode' => 'transform',
+                    'generateDataUrl' => $generateDataUrl,
+                    'reason' => 'bytes_unavailable',
+                ]);
+
                 return [
                     'status' => self::PAYLOAD_STATUS_PENDING,
                     'payload' => null,
@@ -145,6 +214,13 @@ class ThumbhashService extends Component
 
             $tempPath = tempnam(sys_get_temp_dir(), 'thumbhash_tf_');
             if (!$tempPath) {
+                $this->logEvent('error', 'thumbhash.generate.failure', [
+                    'assetId' => $assetId,
+                    'sourceMode' => 'transform',
+                    'generateDataUrl' => $generateDataUrl,
+                    'reason' => 'temp_file_unavailable',
+                ]);
+
                 return [
                     'status' => self::PAYLOAD_STATUS_FAILED,
                     'payload' => null,
@@ -153,6 +229,13 @@ class ThumbhashService extends Component
 
             try {
                 if (file_put_contents($tempPath, $bytes) === false) {
+                    $this->logEvent('warning', 'thumbhash.generate.failure', [
+                        'assetId' => $assetId,
+                        'sourceMode' => 'transform',
+                        'generateDataUrl' => $generateDataUrl,
+                        'reason' => 'write_failed',
+                    ]);
+
                     return [
                         'status' => self::PAYLOAD_STATUS_FAILED,
                         'payload' => null,
@@ -160,6 +243,21 @@ class ThumbhashService extends Component
                 }
 
                 $payload = $this->generateHashPayloadFromPath($asset, $tempPath, $generateDataUrl);
+
+                if ($payload === null) {
+                    $this->logEvent('warning', 'thumbhash.generate.failure', [
+                        'assetId' => $assetId,
+                        'sourceMode' => 'transform',
+                        'generateDataUrl' => $generateDataUrl,
+                        'reason' => 'extract_failed',
+                    ]);
+                } else {
+                    $this->logEvent('debug', 'thumbhash.generate.success', [
+                        'assetId' => $assetId,
+                        'sourceMode' => 'transform',
+                        'generateDataUrl' => $generateDataUrl,
+                    ]);
+                }
 
                 return [
                     'status' => $payload === null ? self::PAYLOAD_STATUS_FAILED : self::PAYLOAD_STATUS_READY,
@@ -171,7 +269,13 @@ class ThumbhashService extends Component
                 }
             }
         } catch (\Throwable $e) {
-            Craft::warning("ThumbHash: Transform source failed for asset {$asset->id}: {$e->getMessage()}", __METHOD__);
+            $this->logEvent('warning', 'thumbhash.generate.failure', [
+                'assetId' => $assetId,
+                'sourceMode' => 'transform',
+                'generateDataUrl' => $generateDataUrl,
+                'reason' => 'fetch_exception',
+                'exceptionType' => $e::class,
+            ]);
 
             return [
                 'status' => self::PAYLOAD_STATUS_FAILED,
@@ -200,7 +304,7 @@ class ThumbhashService extends Component
 
         $hashArray = Thumbhash::RGBAToHash($width, $height, $pixels);
         $hash = Thumbhash::convertHashToString($hashArray);
-        $dataUrl = $generateDataUrl ? Thumbhash::toDataURL($hashArray) : null;
+        $dataUrl = $generateDataUrl ? $this->hashArrayToDataUrl($hashArray) : null;
 
         return [
             'hash' => $hash,
@@ -210,37 +314,91 @@ class ThumbhashService extends Component
 
     private function fetchTransformBytes(string $url, ?int $assetId = null): ?string
     {
+        $startedAt = microtime(true);
         $normalizedUrl = $this->normalizeTransformUrl($url);
 
         if (!$normalizedUrl) {
-            $assetLabel = $assetId !== null ? " for asset {$assetId}" : '';
-            Craft::info("ThumbHash: Transform URL could not be normalized{$assetLabel}.", 'thumbhash');
+            $this->logEvent('info', 'thumbhash.transform.fetch.result', [
+                'assetId' => $assetId,
+                'sourceMode' => 'transform',
+                'reason' => 'normalize_failed',
+                'durationMs' => $this->durationMs($startedAt),
+            ]);
+
             return null;
         }
 
-        $assetLabel = $assetId !== null ? " for asset {$assetId}" : '';
-        Craft::info("ThumbHash: Fetching transform URL{$assetLabel}: {$normalizedUrl}", 'thumbhash');
+        $sanitizedUrl = $this->sanitizeUrlForLog($normalizedUrl);
+
+        $this->logEvent('debug', 'thumbhash.transform.fetch.start', [
+            'assetId' => $assetId,
+            'sourceMode' => 'transform',
+            'url' => $sanitizedUrl,
+        ]);
 
         try {
             if (str_starts_with($normalizedUrl, 'file://')) {
                 $path = substr($normalizedUrl, 7);
                 if (!is_file($path)) {
-                    Craft::info("ThumbHash: Transform file missing{$assetLabel}: {$path}", 'thumbhash');
+                    $this->logEvent('info', 'thumbhash.transform.fetch.result', [
+                        'assetId' => $assetId,
+                        'sourceMode' => 'transform',
+                        'url' => $sanitizedUrl,
+                        'reason' => 'local_file_missing',
+                        'durationMs' => $this->durationMs($startedAt),
+                    ]);
+
                     return null;
                 }
 
                 $bytes = file_get_contents($path);
                 if ($bytes === false) {
-                    Craft::warning("ThumbHash: Failed reading transform file{$assetLabel}: {$path}", 'thumbhash');
+                    $this->logEvent('warning', 'thumbhash.transform.fetch.result', [
+                        'assetId' => $assetId,
+                        'sourceMode' => 'transform',
+                        'url' => $sanitizedUrl,
+                        'reason' => 'read_failed',
+                        'durationMs' => $this->durationMs($startedAt),
+                    ]);
                 }
+
+                if ($bytes !== false) {
+                    $this->logEvent('debug', 'thumbhash.transform.fetch.result', [
+                        'assetId' => $assetId,
+                        'sourceMode' => 'transform',
+                        'url' => $sanitizedUrl,
+                        'reason' => 'ok',
+                        'durationMs' => $this->durationMs($startedAt),
+                        'bytes' => strlen($bytes),
+                    ]);
+                }
+
                 return $bytes === false ? null : $bytes;
             }
 
             if (is_file($normalizedUrl)) {
                 $bytes = file_get_contents($normalizedUrl);
                 if ($bytes === false) {
-                    Craft::warning("ThumbHash: Failed reading local transform path{$assetLabel}: {$normalizedUrl}", 'thumbhash');
+                    $this->logEvent('warning', 'thumbhash.transform.fetch.result', [
+                        'assetId' => $assetId,
+                        'sourceMode' => 'transform',
+                        'url' => $sanitizedUrl,
+                        'reason' => 'read_failed',
+                        'durationMs' => $this->durationMs($startedAt),
+                    ]);
                 }
+
+                if ($bytes !== false) {
+                    $this->logEvent('debug', 'thumbhash.transform.fetch.result', [
+                        'assetId' => $assetId,
+                        'sourceMode' => 'transform',
+                        'url' => $sanitizedUrl,
+                        'reason' => 'ok',
+                        'durationMs' => $this->durationMs($startedAt),
+                        'bytes' => strlen($bytes),
+                    ]);
+                }
+
                 return $bytes === false ? null : $bytes;
             }
 
@@ -254,21 +412,125 @@ class ThumbhashService extends Component
             $statusCode = $response->getStatusCode();
 
             if ($statusCode < 200 || $statusCode >= 300) {
-                Craft::info("ThumbHash: Transform fetch returned HTTP {$statusCode}{$assetLabel}: {$normalizedUrl}", 'thumbhash');
+                $this->logEvent('info', 'thumbhash.transform.fetch.result', [
+                    'assetId' => $assetId,
+                    'sourceMode' => 'transform',
+                    'url' => $sanitizedUrl,
+                    'reason' => 'http_non_2xx',
+                    'statusCode' => $statusCode,
+                    'durationMs' => $this->durationMs($startedAt),
+                ]);
+
                 return null;
             }
 
             $bytes = (string)$response->getBody();
 
             if ($bytes === '') {
-                Craft::info("ThumbHash: Transform fetch returned empty body{$assetLabel}: {$normalizedUrl}", 'thumbhash');
+                $this->logEvent('info', 'thumbhash.transform.fetch.result', [
+                    'assetId' => $assetId,
+                    'sourceMode' => 'transform',
+                    'url' => $sanitizedUrl,
+                    'reason' => 'empty_body',
+                    'statusCode' => $statusCode,
+                    'durationMs' => $this->durationMs($startedAt),
+                    'bytes' => 0,
+                ]);
+            } else {
+                $this->logEvent('debug', 'thumbhash.transform.fetch.result', [
+                    'assetId' => $assetId,
+                    'sourceMode' => 'transform',
+                    'url' => $sanitizedUrl,
+                    'reason' => 'ok',
+                    'statusCode' => $statusCode,
+                    'durationMs' => $this->durationMs($startedAt),
+                    'bytes' => strlen($bytes),
+                ]);
             }
 
             return $bytes !== '' ? $bytes : null;
         } catch (\Throwable $e) {
-            Craft::warning("ThumbHash: Transform fetch error{$assetLabel}: {$e->getMessage()}", 'thumbhash');
+            $this->logEvent('warning', 'thumbhash.transform.fetch.result', [
+                'assetId' => $assetId,
+                'sourceMode' => 'transform',
+                'url' => $sanitizedUrl,
+                'reason' => 'fetch_exception',
+                'durationMs' => $this->durationMs($startedAt),
+                'exceptionType' => $e::class,
+            ]);
+
             return null;
         }
+    }
+
+    private function sanitizeUrlForLog(string $value): string
+    {
+        $trimmed = trim($value);
+        if ($trimmed === '') {
+            return 'redacted';
+        }
+
+        if (str_starts_with($trimmed, 'file://')) {
+            $path = substr($trimmed, 7);
+            $baseName = basename($path);
+
+            return $baseName !== '' ? "local-file:{$baseName}" : 'local-file';
+        }
+
+        if (str_starts_with($trimmed, '/') || str_starts_with($trimmed, './') || str_starts_with($trimmed, '../')) {
+            $baseName = basename($trimmed);
+
+            return $baseName !== '' ? "local-file:{$baseName}" : 'local-file';
+        }
+
+        $parts = parse_url($trimmed);
+        if (!is_array($parts)) {
+            return 'redacted';
+        }
+
+        if (!isset($parts['scheme'], $parts['host'])) {
+            return 'redacted';
+        }
+
+        $scheme = strtolower((string)$parts['scheme']);
+        if ($scheme !== 'http' && $scheme !== 'https') {
+            return 'redacted';
+        }
+
+        $host = (string)$parts['host'];
+        $port = isset($parts['port']) ? ':' . (int)$parts['port'] : '';
+        $path = isset($parts['path']) && is_string($parts['path']) && $parts['path'] !== ''
+            ? $parts['path']
+            : '/';
+
+        return "{$scheme}://{$host}{$port}{$path}";
+    }
+
+    private function durationMs(float $startedAt): int
+    {
+        return (int)round((microtime(true) - $startedAt) * 1000);
+    }
+
+    private function logEvent(string $level, string $event, array $context = []): void
+    {
+        $message = new PsrMessage($event, $context);
+
+        if ($level === 'debug') {
+            Craft::getLogger()->log($message, Logger::LEVEL_TRACE, self::LOG_CATEGORY);
+            return;
+        }
+
+        if ($level === 'warning') {
+            Craft::warning($message, self::LOG_CATEGORY);
+            return;
+        }
+
+        if ($level === 'error') {
+            Craft::error($message, self::LOG_CATEGORY);
+            return;
+        }
+
+        Craft::info($message, self::LOG_CATEGORY);
     }
 
     private function normalizeTransformUrl(string $url): ?string
@@ -512,6 +774,48 @@ class ThumbhashService extends Component
     }
 
     /**
+     * Whether PNG data URL compression should be used.
+     */
+    public function shouldUsePngCompression(): bool
+    {
+        $plugin = Plugin::getInstance();
+
+        if ($plugin === null) {
+            return true;
+        }
+
+        return (bool)$plugin->getSettings()->pngCompressionEnabled;
+    }
+
+    /**
+     * PNG compression level (0-9).
+     */
+    public function pngCompressionLevel(): int
+    {
+        $plugin = Plugin::getInstance();
+
+        if ($plugin === null) {
+            return 9;
+        }
+
+        return max(0, min(9, (int)$plugin->getSettings()->pngCompressionLevel));
+    }
+
+    /**
+     * Whether metadata should be stripped from Imagick PNG output.
+     */
+    public function shouldStripPngMetadata(): bool
+    {
+        $plugin = Plugin::getInstance();
+
+        if ($plugin === null) {
+            return true;
+        }
+
+        return (bool)$plugin->getSettings()->pngStripMetadata;
+    }
+
+    /**
      * Get the stored thumbhash string for an asset.
      */
     public function getHash(int $assetId): ?string
@@ -566,7 +870,149 @@ class ThumbhashService extends Component
     {
         $hashArray = Thumbhash::convertStringToHash($hash);
 
+        return $this->hashArrayToDataUrl($hashArray);
+    }
+
+    /**
+     * Convert a ThumbHash byte array into a PNG data URL.
+     *
+     * Tries compressed PNG encoding first, then falls back to the library's
+     * built-in uncompressed encoder if compression fails.
+     *
+     * @param array<int> $hashArray
+     */
+    private function hashArrayToDataUrl(array $hashArray): string
+    {
+        if (!$this->shouldUsePngCompression()) {
+            return Thumbhash::toDataURL($hashArray);
+        }
+
+        $image = Thumbhash::hashToRGBA($hashArray);
+
+        $w = (int)($image['w'] ?? 0);
+        $h = (int)($image['h'] ?? 0);
+        $rgba = $image['rgba'] ?? null;
+
+        if (
+            $w > 0 &&
+            $h > 0 &&
+            is_array($rgba) &&
+            count($rgba) === $w * $h * 4
+        ) {
+            $pngBytes = $this->encodeCompressedPngBytes($w, $h, $rgba);
+            if ($pngBytes !== null) {
+                return 'data:image/png;base64,' . base64_encode($pngBytes);
+            }
+        }
+
         return Thumbhash::toDataURL($hashArray);
+    }
+
+    /**
+     * Encode RGBA pixel data into compressed PNG bytes.
+     *
+     * @param array<int> $rgba
+     */
+    private function encodeCompressedPngBytes(int $w, int $h, array $rgba): ?string
+    {
+        if (extension_loaded('imagick')) {
+            $bytes = $this->encodeCompressedPngBytesImagick($w, $h, $rgba);
+            if ($bytes !== null) {
+                return $bytes;
+            }
+        }
+
+        if (extension_loaded('gd')) {
+            return $this->encodeCompressedPngBytesGd($w, $h, $rgba);
+        }
+
+        return null;
+    }
+
+    /**
+     * Encode RGBA data with Imagick PNG ZIP compression.
+     *
+     * @param array<int> $rgba
+     */
+    private function encodeCompressedPngBytesImagick(int $w, int $h, array $rgba): ?string
+    {
+        try {
+            $compressionLevel = $this->pngCompressionLevel();
+            $image = new \Imagick();
+            $image->newImage($w, $h, 'transparent', 'png');
+            $image->importImagePixels(0, 0, $w, $h, 'RGBA', \Imagick::PIXEL_CHAR, $rgba);
+            $image->setImageFormat('png');
+            $image->setImageDepth(8);
+            $image->setImageCompression(\Imagick::COMPRESSION_ZIP);
+            $image->setOption('png:compression-level', (string)$compressionLevel);
+            if ($this->shouldStripPngMetadata()) {
+                $image->stripImage();
+            }
+
+            $bytes = $image->getImageBlob();
+            $image->clear();
+            $image->destroy();
+
+            return $bytes !== '' ? $bytes : null;
+        } catch (\Throwable $e) {
+            Craft::warning("ThumbHash: Imagick PNG compression failed: {$e->getMessage()}", __METHOD__);
+            return null;
+        }
+    }
+
+    /**
+     * Encode RGBA data with GD PNG compression (level 9).
+     *
+     * @param array<int> $rgba
+     */
+    private function encodeCompressedPngBytesGd(int $w, int $h, array $rgba): ?string
+    {
+        try {
+            $compressionLevel = $this->pngCompressionLevel();
+            $image = imagecreatetruecolor($w, $h);
+            if ($image === false) {
+                return null;
+            }
+
+            imagealphablending($image, false);
+            imagesavealpha($image, true);
+
+            $transparent = imagecolorallocatealpha($image, 0, 0, 0, 127);
+            if ($transparent !== false) {
+                imagefill($image, 0, 0, $transparent);
+            }
+
+            $i = 0;
+            for ($y = 0; $y < $h; $y++) {
+                for ($x = 0; $x < $w; $x++) {
+                    $r = (int)$rgba[$i++];
+                    $g = (int)$rgba[$i++];
+                    $b = (int)$rgba[$i++];
+                    $a = (int)$rgba[$i++];
+
+                    // Convert 8-bit alpha (0 transparent..255 opaque) to GD alpha (127 transparent..0 opaque).
+                    $gdAlpha = 127 - (int)round(($a / 255) * 127);
+                    $color = imagecolorallocatealpha($image, $r, $g, $b, max(0, min(127, $gdAlpha)));
+                    if ($color !== false) {
+                        imagesetpixel($image, $x, $y, $color);
+                    }
+                }
+            }
+
+            ob_start();
+            $ok = imagepng($image, null, $compressionLevel);
+            $bytes = ob_get_clean();
+            imagedestroy($image);
+
+            if (!$ok || !is_string($bytes) || $bytes === '') {
+                return null;
+            }
+
+            return $bytes;
+        } catch (\Throwable $e) {
+            Craft::warning("ThumbHash: GD PNG compression failed: {$e->getMessage()}", __METHOD__);
+            return null;
+        }
     }
 
     /**

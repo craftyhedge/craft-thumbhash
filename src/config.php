@@ -12,15 +12,30 @@ return [
     // 'volumes' => '*',
     // 'volumes' => ['images', 'hero'],
 
-    // Generate and store the decoded PNG data URL (~300 bytes per asset).
+    // Generate and store the decoded PNG data URL (typically ~0.8-2KB per asset).
     // Set to false to disable PNG creation and only store hash strings.
     // Default: true
     // 'generateDataUrl' => true,
 
+    // Use PNG compression for generated data URLs.
+    // If false, falls back to the standard uncompressed ThumbHash PNG encoder.
+    // Default: true
+    // 'pngCompressionEnabled' => true,
+
+    // PNG compression level for generated data URLs (0-9).
+    // Higher values reduce size but are slower to encode.
+    // Default: 9
+    // 'pngCompressionLevel' => 9,
+
+    // Strip metadata from Imagick-generated PNGs.
+    // Ignored when Imagick is unavailable.
+    // Default: true
+    // 'pngStripMetadata' => true,
+
     // Use a Craft transform URL as the source image for hash generation.
     // Helpful when transforms are offloaded to an external image service.
-    // Default: false
-    // 'useTransformSource' => false,
+    // Default: true
+    // 'useTransformSource' => true,
 
     // Transform definition used when useTransformSource is enabled.
     // Default: fit 100x100
@@ -34,4 +49,8 @@ return [
     // Default: 4 attempts with 15s delay
     // 'transformSourceMaxAttempts' => 4,
     // 'transformSourceRetryDelay' => 15,
+
+    // Include debug-level plugin logs when dev mode is enabled.
+    // Default: false
+    // 'logDebug' => false,
 ];

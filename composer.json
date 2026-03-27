@@ -5,7 +5,7 @@
     "license": "proprietary",
     "require": {
         "php": "^8.2",
-        "craftcms/cms": "^5.0.0||^4.4.0",
+        "craftcms/cms": "^5.0.0",
         "srwiez/thumbhash": "^1.5"
     },
     "autoload": {
