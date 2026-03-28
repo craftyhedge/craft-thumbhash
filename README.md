@@ -4,27 +4,19 @@ Automatic thumbhash placeholder generation for Craft CMS image assets.
 
 ## What is ThumbHash?
 
-### Frontend
+ThumbHash is a tiny visual fingerprint of an image. It stores the image's overall color and structure in a very small base64 string (typically around 28 bytes), which can be decoded into a lightweight PNG placeholder.
 
-ThumbHash is a compact image placeholder with two implementation approaches:
+That gives users an immediate, content-aware preview while the full image loads, improving perceived performance and reducing layout jank.
 
-#### JS Decoder
+This plugin supports two frontend delivery approaches:
+
+### JS Decoder
 
 - Inline a tiny base64 hash string (~28 bytes) in your HTML and use the included client-side JS decoder to convert it to a small PNG data URL on the fly.
 
-#### Inline Data URLs
+### Inline Data URLs
 
-- For zero-JavaScript placeholders, use and inline the pre-decoded PNG data URL. No network requests or JS decoding and still smaller and better looking than most regular LQIPs.
-
-<table>
-    <tr>
-        <td><img width="300px" height="402px" src="assets/thumbhash-example.png" alt="Example of a thumbhash placeholder decoded to a tiny PNG data URL" /></td>
-        <td><img width="300px" height="402px" src="assets/image-example.avif" alt="Example full image" /></td>
-    </tr>
-</table>
-
-Photo by <a href="https://unsplash.com/@sanjeevan_s?utm_source=unsplash&utm_medium=referral&utm_content=creditCopyText">Sanjeevan  SatheesKumar</a> on <a href="https://unsplash.com/photos/tree-surrounded-by-grass-MG8c-4n1QVE?utm_source=unsplash&utm_medium=referral&utm_content=creditCopyText">Unsplash</a>
-      
+- For zero-JavaScript placeholders, inline the pre-decoded PNG data URL. No network requests or JS decoding, while still being smaller and usually better looking than most regular LQIPs.
 
 ### Backend
 - Triggers a transform for a 100×100px thumbnail of the original image and encodes it to a compact base64 hash string (~28 bytes) using the ThumbHash algorithm.
@@ -41,6 +33,19 @@ Photo by <a href="https://unsplash.com/@sanjeevan_s?utm_source=unsplash&utm_medi
 - In practice, the larger client-decoded PNG usually isn't a problem: the browser is decoding from an already-inlined hash string, there is no extra network request, and the decode itself happens extremely quickly.
 
 If your images are hosted externally and that service goes down for whatever reason, users will always get a placeholder.
+
+## Example
+
+This example shows how good a ThumbHash placeholder can look. Getting this kind of smooth gradient from heavily compressed, blurred LQIP-style placeholders usually means a larger payload and often an extra request.
+
+<table>
+    <tr>
+        <td><img width="300px" height="402px" src="assets/thumbhash-example.png" alt="Example of a thumbhash placeholder decoded to a tiny PNG data URL" /></td>
+        <td><img width="300px" height="402px" src="assets/image-example.avif" alt="Example full image" /></td>
+    </tr>
+</table>
+
+Photo by <a href="https://unsplash.com/@sanjeevan_s?utm_source=unsplash&utm_medium=referral&utm_content=creditCopyText">Sanjeevan  SatheesKumar</a> on <a href="https://unsplash.com/photos/tree-surrounded-by-grass-MG8c-4n1QVE?utm_source=unsplash&utm_medium=referral&utm_content=creditCopyText">Unsplash</a>
 
 
 ## Requirements
@@ -260,7 +265,7 @@ return [
 
 For the best server performance, it is recommended to use an external transform service like Imgix or Cloudflare Images.
 
-If your project is setup to replace the native Craft transforms with an external service, ThumbHash will also use that meaning the largest part of the thumbhash generation process is offloaded to the external service. This is ideal since those services are optimized for fast transform generation and delivery.
+If your project is set up to replace native Craft transforms with an external service, ThumbHash will use it too. That offloads the heaviest part of thumbhash generation and is ideal because these services are optimized for fast transform generation and delivery.
 
 #### Imgixer
 
@@ -302,7 +307,9 @@ There are a few options for Cloudflare Images integration, depending on your nee
 #### Other Transform Services
 There may be more options and how you set these up is up to you.
 
-Whatever transforms service is in use for your project, Thumbhash will use. You can double check the ThumbHash logs to check what URL is being used as the source for hash generation.
+Whatever transform service your project uses, ThumbHash will use it too. You can verify the source URL used for hash generation in the ThumbHash logs.
+
+You might have to explore the specific plugin docs to get this working properly with your choice of transform service.
 
 ## Backfilling Existing Assets
 
