@@ -13,10 +13,13 @@ ThumbHash is a compact image placeholder with two implementation approaches:
 
 <table>
     <tr>
-        <td><img width="200px" height="268px" src="assets/thumbhash.png" alt="Example of a thumbhash placeholder decoded to a tiny PNG data URL" /></td>
-        <td><img width="200px" height="268px" src="assets/example.avif" alt="Example full image" /></td>
+        <td><img width="200px" height="268px" src="assets/thumbhash-example.png" alt="Example of a thumbhash placeholder decoded to a tiny PNG data URL" /></td>
+        <td><img width="200px" height="268px" src="assets/image-example.avif" alt="Example full image" /></td>
     </tr>
 </table>
+
+Photo by <a href="https://unsplash.com/@sanjeevan_s?utm_source=unsplash&utm_medium=referral&utm_content=creditCopyText">Sanjeevan  SatheesKumar</a> on <a href="https://unsplash.com/photos/tree-surrounded-by-grass-MG8c-4n1QVE?utm_source=unsplash&utm_medium=referral&utm_content=creditCopyText">Unsplash</a>
+      
 
 ### Backend
 - Triggers a transform for a 100×100px thumbnail of the original image and encodes it to a compact base64 hash string (~28 bytes) using the ThumbHash algorithm.
