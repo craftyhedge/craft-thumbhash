@@ -173,7 +173,7 @@ The plugin also adds a `Utilities -> ThumbHash` screen for maintenance tasks:
 - Preview stored PNG placeholders across assets.
 - Clear all stored thumbhash records.
 
-<img width="620px" height="340px" src="assets/ThumbHash-panel.png" alt="ThumbHash control panel utility showing the PNG preview grid and generation tools" />
+<img width="620px" height="340px" src="assets/thumbhash-panel.png" alt="ThumbHash control panel utility showing the PNG preview grid and generation tools" />
 
 ### JavaScript API
 
