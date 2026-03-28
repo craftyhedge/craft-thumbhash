@@ -16,20 +16,6 @@ ThumbHash is a compact image placeholder with two implementation approaches:
 
 - For zero-JavaScript placeholders, use and inline the pre-decoded PNG data URL. No network requests or JS decoding and still smaller and better looking than most regular LQIPs.
 
-<style>
-    table {
-        border-collapse: collapse;
-    }
-
-    td {
-        padding: 0px;
-    }
-
-    .markdown-body table td {
-        border: none;
-    }
-</style>
-
 <table>
     <tr>
         <td><img width="300px" height="402px" src="assets/thumbhash-example.png" alt="Example of a thumbhash placeholder decoded to a tiny PNG data URL" /></td>
