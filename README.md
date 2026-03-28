@@ -281,55 +281,11 @@ return [
 ];
 ```
 
-### Transform Source
+## Transform Source
 
 For the best server performance, it is recommended to use an external transform service like Imgix or Cloudflare Images.
 
-If your project is set up to replace native Craft transforms with an external service, ThumbHash will use it too. That offloads the heaviest part of thumbhash generation and is ideal because these services are optimized for fast transform generation and delivery.
-
-#### Imgixer
-
-[Imgixer](https://github.com/croxton/imgixer/) is a Craft plugin that provides an Imgix transform source. If you're using Imgixer, you can configure it as the transform source for ThumbHash.
-
-If you are using Imgixer for Craft transforms, configure an Imgix source in `config/imgixer.php` and point Imgixer's transform source to it:
-
-```php
-<?php
-
-use craft\helpers\App;
-
-return [
-    'sources' => [
-        'imgix' => [
-            'provider' => 'imgix',
-            'endpoint' => App::env('IMGIX_DOMAIN'),
-            'privateKey' => App::env('IMGIX_KEY'),
-            'signed' => true,
-            'defaultParams' => ['auto' => 'compress,format'],
-        ],
-        'assetTransforms' => [
-            'provider' => 'imgix',
-            'endpoint' => App::env('IMGIX_DOMAIN'),
-            'privateKey' => App::env('IMGIX_KEY'),
-            'signed' => true,
-            'defaultParams' => ['auto' => 'compress,format'],
-        ],
-    ],
-    'transformSource' => 'assetTransforms',
-];
-```
-
-#### Cloudflare Images
-There are a few options for Cloudflare Images integration, depending on your needs:
-- Cloudflare Images: deuxhuithuit/craft-cloudflare-images
-- Cloudflare Transformations: lenvanessen/cloudflare-image-transforms
-
-#### Other Transform Services
-There may be more options and how you set these up is up to you.
-
-Whatever transform service your project uses, ThumbHash will use it too. You can verify the source URL used for hash generation in the ThumbHash logs.
-
-You might have to explore the specific plugin docs to get this working properly with your choice of transform service.
+If your project is set up to replace native Craft transforms with an external service, ThumbHash should use it too. You can verify the source URL used for hash generation in the ThumbHash logs.
 
 ## Backfilling Existing Assets
 
