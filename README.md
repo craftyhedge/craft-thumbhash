@@ -16,6 +16,20 @@ ThumbHash is a compact image placeholder with two implementation approaches:
 
 - For zero-JavaScript placeholders, use and inline the pre-decoded PNG data URL. No network requests or JS decoding and still smaller and better looking than most regular LQIPs.
 
+<style>
+    table {
+        border-collapse: collapse;
+    }
+
+    td {
+        padding: 0px;
+    }
+
+    .markdown-body table td {
+        border: none;
+    }
+</style>
+
 <table>
     <tr>
         <td><img width="300px" height="402px" src="assets/thumbhash-example.png" alt="Example of a thumbhash placeholder decoded to a tiny PNG data URL" /></td>
@@ -39,6 +53,9 @@ Photo by <a href="https://unsplash.com/@sanjeevan_s?utm_source=unsplash&utm_medi
 - When `generateDataUrl` is enabled (default), the plugin can store a compressed PNG data URL in the database for the no-JS path. That usually produces a smaller inline PNG than decoding the same hash on the client.
 - The base64 hash string is around ~28 bytes, while the decoded PNG data URL is typically around ~0.8-2KB per image, depending on the image content and compression settings. Gzip/Brotli compression can further reduce the data URL size when served from your server.
 - In practice, the larger client-decoded PNG usually isn't a problem: the browser is decoding from an already-inlined hash string, there is no extra network request, and the decode itself happens extremely quickly.
+
+If your images are hosted externally and that services goes down for whatever reason, users will always get a placeholder.
+
 
 ## Requirements
 
