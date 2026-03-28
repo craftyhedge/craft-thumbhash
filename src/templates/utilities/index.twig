@@ -210,7 +210,7 @@
             return;
         }
 
-        $status.text(Craft.t('thumbhash', 'Processing failed.'));
+        $status.text(Craft.t('thumbhash', 'Processing failed. Some images may remain eligible for a future run.'));
     };
 
     const setCompletedWithFailuresStatus = (message) => {
@@ -221,7 +221,7 @@
             return;
         }
 
-        $status.text(Craft.t('thumbhash', 'Processing completed with failures. Check the ThumbHash logs for details.'));
+        $status.text(Craft.t('thumbhash', 'Processing completed with failures. Some images remain eligible for a future run. Check the ThumbHash logs for details.'));
     };
 
     const stopPolling = () => {

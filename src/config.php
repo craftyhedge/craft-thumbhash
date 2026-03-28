@@ -40,12 +40,6 @@ return [
     //     'height' => 100,
     // ],
 
-    // Retry behavior when the transform source is not ready yet.
-    // After max attempts, generation is logged as failed.
-    // Default: 4 attempts with 15s delay
-    // 'transformSourceMaxAttempts' => 4,
-    // 'transformSourceRetryDelay' => 15,
-
     // CSS styles applied automatically when using `data-thumbhash-bg`.
     // Set to an empty array to disable the auto-applied background styles.
     // Default: no-repeat / cover / center

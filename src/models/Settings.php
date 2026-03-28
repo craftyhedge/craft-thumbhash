@@ -49,16 +49,6 @@ class Settings extends Model
     ];
 
     /**
-     * Maximum retry attempts when transform source is not ready.
-     */
-    public int $transformSourceMaxAttempts = 4;
-
-    /**
-     * Delay in seconds between transform source retries.
-     */
-    public int $transformSourceRetryDelay = 15;
-
-    /**
      * CSS styles applied automatically when `data-thumbhash-bg` is used.
      *
      * @var array<string, string>

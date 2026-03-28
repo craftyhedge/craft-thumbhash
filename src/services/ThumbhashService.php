@@ -17,7 +17,6 @@ class ThumbhashService extends Component
 {
     private const LOG_CATEGORY = 'thumbhash';
     private const PAYLOAD_STATUS_READY = 'ready';
-    private const PAYLOAD_STATUS_PENDING = 'pending';
     private const PAYLOAD_STATUS_FAILED = 'failed';
 
     /**
@@ -51,7 +50,7 @@ class ThumbhashService extends Component
     }
 
     /**
-     * Generate hash data and return status metadata for queue retry behavior.
+     * Generate hash data and return status metadata for the caller.
      *
      * @return array{status: string, reason: string|null, payload: array{hash: string, dataUrl: ?string}|null}
      */
@@ -107,15 +106,15 @@ class ThumbhashService extends Component
             $transformUrl = $asset->getUrl($this->getSourceTransformDefinition(), true);
 
             if (!$transformUrl) {
-                $this->logEvent('info', 'thumbhash.transform.url_pending', [
+                $this->logEvent('info', 'thumbhash.generate.failure', [
                     'assetId' => $assetId,
                     'generateDataUrl' => $generateDataUrl,
-                    'reason' => 'url_pending',
+                    'reason' => 'transform_url_unavailable',
                 ]);
 
                 return [
-                    'status' => self::PAYLOAD_STATUS_PENDING,
-                    'reason' => 'url_pending',
+                    'status' => self::PAYLOAD_STATUS_FAILED,
+                    'reason' => 'transform_url_unavailable',
                     'payload' => null,
                 ];
             }
@@ -130,7 +129,7 @@ class ThumbhashService extends Component
                 ]);
 
                 return [
-                    'status' => self::PAYLOAD_STATUS_PENDING,
+                    'status' => self::PAYLOAD_STATUS_FAILED,
                     'reason' => 'bytes_unavailable',
                     'payload' => null,
                 ];
@@ -558,26 +557,6 @@ class ThumbhashService extends Component
         }
 
         return $transform;
-    }
-
-    public function transformSourceMaxAttempts(): int
-    {
-        $plugin = Plugin::getInstance();
-        if ($plugin === null) {
-            return 4;
-        }
-
-        return max(1, (int)$plugin->getSettings()->transformSourceMaxAttempts);
-    }
-
-    public function transformSourceRetryDelaySeconds(): int
-    {
-        $plugin = Plugin::getInstance();
-        if ($plugin === null) {
-            return 15;
-        }
-
-        return max(1, (int)$plugin->getSettings()->transformSourceRetryDelay);
     }
 
     /**

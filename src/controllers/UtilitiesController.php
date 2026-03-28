@@ -22,7 +22,7 @@ class UtilitiesController extends Controller
 {
     private const RUN_CACHE_KEY_PREFIX = 'thumbhash:utility:run:';
     private const RUN_CACHE_KEY = self::RUN_CACHE_KEY_PREFIX . 'global';
-    private const RUN_FAILURE_MESSAGE = 'One or more images failed to generate thumbhashes. Check the ThumbHash logs for details.';
+    private const RUN_FAILURE_MESSAGE = 'Some images could not be processed. They remain eligible for a future run. Check the ThumbHash logs for details.';
 
     private function isSvgAsset(Asset $asset): bool
     {

@@ -3,7 +3,6 @@
 namespace craftyhedge\craftthumbhash\jobs;
 
 use Craft;
-use craft\helpers\Queue as QueueHelper;
 use craft\base\Batchable;
 use craft\db\QueryBatcher;
 use craft\elements\Asset;
@@ -16,7 +15,7 @@ class GenerateThumbhashBatch extends BaseBatchedJob
 {
     private const LOG_CATEGORY = 'thumbhash';
     private const RUN_CACHE_KEY = 'thumbhash:utility:run:global';
-    private const RUN_FAILURE_MESSAGE = 'One or more images failed to generate thumbhashes. Check the ThumbHash logs for details.';
+    private const RUN_FAILURE_MESSAGE = 'Some images could not be processed. They remain eligible for a future run. Check the ThumbHash logs for details.';
 
     /**
      * @var array<string>|string|null
@@ -29,8 +28,7 @@ class GenerateThumbhashBatch extends BaseBatchedJob
     public int $scanned = 0;
     public int $skippedCurrent = 0;
     public int $generated = 0;
-    public int $deferredForRetry = 0;
-    public int $failedBeforeRetry = 0;
+    public int $failed = 0;
 
     protected function before(): void
     {
@@ -39,8 +37,7 @@ class GenerateThumbhashBatch extends BaseBatchedJob
         $this->scanned = 0;
         $this->skippedCurrent = 0;
         $this->generated = 0;
-        $this->deferredForRetry = 0;
-        $this->failedBeforeRetry = 0;
+        $this->failed = 0;
     }
 
     protected function after(): void
@@ -51,8 +48,7 @@ class GenerateThumbhashBatch extends BaseBatchedJob
             'scanned' => $this->scanned,
             'skippedCurrent' => $this->skippedCurrent,
             'generated' => $this->generated,
-            'deferredForRetry' => $this->deferredForRetry,
-            'failedBeforeRetry' => $this->failedBeforeRetry,
+            'failed' => $this->failed,
             'volumes' => $this->volumes,
         ]);
     }
@@ -101,19 +97,6 @@ class GenerateThumbhashBatch extends BaseBatchedJob
 
         $result = $service->generateHashPayloadWithStatus($item, $generateDataUrl);
 
-        if ($result['status'] === 'pending') {
-            $this->deferredForRetry++;
-
-            QueueHelper::push(
-                new GenerateThumbhash([
-                    'assetId' => (int)$item->id,
-                    'transformAttempt' => 1,
-                ]),
-                delay: $service->transformSourceRetryDelaySeconds(),
-            );
-            return;
-        }
-
         $generated = $result['payload'];
 
         if ($generated !== null) {
@@ -122,7 +105,7 @@ class GenerateThumbhashBatch extends BaseBatchedJob
             return;
         }
 
-        $this->failedBeforeRetry++;
+        $this->failed++;
         $this->markUtilityRunFailed();
     }
 

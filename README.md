@@ -27,13 +27,15 @@ ThumbHash is a compact image placeholder with two implementation approaches:
 ### JS Decoder vs. Inline Data URLs
 
 - The JS decoder is very fast. On desktop-class runtimes, decoding a hash to a data URL is typically well under 1ms; mobile performance varies by device.
+- The client-side decoder uses the standard ThumbHash PNG encoder in the browser. It does not apply the plugin's server-side PNG compression settings.
+- When `generateDataUrl` is enabled, the plugin can store a compressed PNG data URL in the database for the no-JS path. That usually produces a smaller inline PNG than decoding the same hash on the client.
 - The base64 hash string is around ~28 bytes, while the decoded PNG data URL is typically around ~0.8-2KB per image, depending on the image content and compression settings. Gzip/Brotli compression can further reduce the data URL size when served from your server.
+- In practice, the larger client-decoded PNG usually isn't a problem: the browser is decoding from an already-inlined hash string, there is no extra network request, and the decode itself happens extremely quickly.
 
 ## Requirements
 
 - Craft CMS 5.0+
 - PHP 8.2+
-- Imagick extension recommended, or GD for local image decoding (note: GD's alpha channel support is limited to 1-bit transparency, so results may be less smooth)
 
 ## Recommendations
 - External transform service recommended for best performance (e.g. Imgix, Cloudflare Images)
@@ -49,12 +51,19 @@ php craft plugin/install thumbhash
 
 ### Twig Templates
 
-The decoder script will decode each hash to a tiny PNG data URL and set it as the `src` on the element. Your lazy loading library (lazysizes, lozad, etc.) handles swapping `data-src` → `src` when the element enters the viewport.
+The decoder script will decode each hash to a tiny PNG data URL and set it as the `src` on the element.
+For sheer speed from page load to placeholder rendering, keep the decoder script registered in the `<head>` and leave the default setting `deferDecoderScript` set to `false` so the decoder runs as soon as possible.
 
 ```twig
 {# Register the decoder asset (safe to call; Craft includes it once per page) #}
 {{ thumbhashScript() }}
+```
 
+Your lazy loading library (lazysizes, lozad, etc.) handles swapping `data-src` → `src` when the element enters the viewport.
+
+Note that this browser-decoded placeholder uses the standard ThumbHash PNG output, not the plugin's optional server-side PNG compression. That means the resulting data URL may be a bit larger than `thumbhashDataUrl(asset)`, but it is generated locally from the inlined hash with no additional request and is typically ready essentially immediately.
+
+```twig
 {# For each image, use data-thumbhash with your preferred lazy loading approach #}
 {% set hash = thumbhash(asset) %}
 
@@ -139,6 +148,8 @@ img.lazyload:not([src]) {
 
 The decoder exposes a global API for manual use:
 
+This API mirrors the default ThumbHash browser encoder. It does not use the plugin's server-side compressed PNG generation path.
+
 ```js
 // Decode a base64 thumbhash to a data URL
 var dataUrl = window.thumbhash.toDataURL('BASE64_HASH');
@@ -193,12 +204,6 @@ return [
     //     'width' => 100,
     //     'height' => 100,
     // ],
-
-    // Retry behavior when transform source is not ready yet.
-    // After max attempts, generation is logged as failed.
-    // Defaults: 4 attempts with 15s delay
-    // 'transformSourceMaxAttempts' => 4,
-    // 'transformSourceRetryDelay' => 15,
 
     // CSS styles applied automatically when using `data-thumbhash-bg`.
     // Set to an empty array to disable the auto-applied background styles.
