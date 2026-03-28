@@ -38,13 +38,7 @@ class Settings extends Model
     public bool $pngStripMetadata = true;
 
     /**
-     * Whether hash generation should use a Craft image transform as input.
-     * Useful when transforms are offloaded to an external image service.
-     */
-    public bool $useTransformSource = true;
-
-    /**
-     * Transform definition used when `useTransformSource` is enabled.
+     * Transform definition used as the source image for hash generation.
      *
      * @var array<string, mixed>
      */

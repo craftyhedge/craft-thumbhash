@@ -32,12 +32,7 @@ return [
     // Default: true
     // 'pngStripMetadata' => true,
 
-    // Use a Craft transform URL as the source image for hash generation.
-    // Helpful when transforms are offloaded to an external image service.
-    // Default: true
-    // 'useTransformSource' => true,
-
-    // Transform definition used when useTransformSource is enabled.
+    // Transform definition used as the source image for hash generation.
     // Default: fit 100x100
     // 'sourceTransform' => [
     //     'mode' => 'fit',
@@ -46,6 +41,7 @@ return [
     // ],
 
     // Retry behavior when the transform source is not ready yet.
+    // After max attempts, generation is logged as failed.
     // Default: 4 attempts with 15s delay
     // 'transformSourceMaxAttempts' => 4,
     // 'transformSourceRetryDelay' => 15,

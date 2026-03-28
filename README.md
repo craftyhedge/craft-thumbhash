@@ -33,7 +33,7 @@ ThumbHash is a compact image placeholder with two implementation approaches:
 
 - Craft CMS 5.0+
 - PHP 8.2+
-- Imagick extension (recommended) or GD for fallback (note: GD's alpha channel support is limited to 1-bit transparency, so results may be less smooth)
+- Imagick extension recommended, or GD for local image decoding (note: GD's alpha channel support is limited to 1-bit transparency, so results may be less smooth)
 
 ## Recommendations
 - External transform service recommended for best performance (e.g. Imgix, Cloudflare Images)
@@ -186,12 +186,7 @@ return [
     // Default: true
     // 'pngStripMetadata' => true,
 
-    // Use a Craft image transform as the source for hash generation.
-    // Helpful when transforms are offloaded to an external image service.
-    // Default: true
-    // 'useTransformSource' => true,
-
-    // Transform definition used when useTransformSource is enabled.
+    // Transform definition used as the source image for hash generation.
     // Default: fit 100x100
     // 'sourceTransform' => [
     //     'mode' => 'fit',
@@ -200,7 +195,7 @@ return [
     // ],
 
     // Retry behavior when transform source is not ready yet.
-    // After max attempts, generation falls back to direct source processing.
+    // After max attempts, generation is logged as failed.
     // Defaults: 4 attempts with 15s delay
     // 'transformSourceMaxAttempts' => 4,
     // 'transformSourceRetryDelay' => 15,
@@ -224,7 +219,7 @@ return [
 
 For the best server performance, it is recommended to use an external transform service like Imgix or Cloudflare Images.
 
-To ensure ThumbHash works with those transform services, a plugin is needed to replace the native Craft transform service.
+If your project is setup to replace the native Craft transforms with an external service, ThumbHash will also use that meaning the largest part of the thumbhash generation process is offloaded to the external service. This is ideal since those services are optimized for fast transform generation and delivery.
 
 #### Imgixer
 
@@ -258,20 +253,15 @@ return [
 ];
 ```
 
-You can disable transform-source mode for ThumbHash in `config/thumbhash.php` to fall back to the original source file, but this will lead to increased server load and slower generation times:
+#### Cloudflare Images
+There are a few options for Cloudflare Images integration, depending on your needs:
+- Cloudflare Images: deuxhuithuit/craft-cloudflare-images
+- Cloudflare Transformations: lenvanessen/cloudflare-image-transforms
 
-```php
-<?php
+#### Other Transform Services
+There may be more options and how you set these up is up to you.
 
-return [
-    'useTransformSource' => false,
-    'sourceTransform' => [
-        'mode' => 'fit',
-        'width' => 100,
-        'height' => 100,
-    ],
-];
-```
+Whatever transforms service is in use for your project, Thumbhash will use. You can double check the ThumbHash logs to check what URL is being used as the source for hash generation.
 
 ## Backfilling Existing Assets
 
@@ -310,7 +300,7 @@ The `--yes=1` flag is required as a safety guard for this destructive action.
 
 - **SVGs are skipped** — they can't be rasterized to pixels for hashing
 - **Animated GIFs** — only the first frame is hashed
-- **Imagick is preferred** over GD for proper 8-bit alpha channel support if fallback is ever used
+- **Imagick is preferred** over GD for proper 8-bit alpha channel support
 - Hashes and png urls are stored in a custom `thumbhashes` DB table with a foreign key cascade to the elements table
 
 ## Logging

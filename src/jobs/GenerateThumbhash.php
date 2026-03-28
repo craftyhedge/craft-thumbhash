@@ -14,6 +14,8 @@ use yii\log\Logger;
 class GenerateThumbhash extends BaseJob
 {
     private const LOG_CATEGORY = 'thumbhash';
+    private const RUN_CACHE_KEY = 'thumbhash:utility:run:global';
+    private const RUN_FAILURE_MESSAGE = 'One or more images failed to generate thumbhashes. Check the ThumbHash logs for details.';
 
     public int $assetId;
     public int $transformAttempt = 0;
@@ -36,15 +38,15 @@ class GenerateThumbhash extends BaseJob
 
         $service = Plugin::getInstance()->thumbhash;
         $generateDataUrl = $service->shouldGenerateDataUrl();
-        $useTransformSource = $service->shouldUseTransformSource();
 
         if ($service->isAssetCurrent($asset, $generateDataUrl)) {
             return;
         }
 
-        $result = $service->generateHashPayloadWithStatus($asset, $generateDataUrl, $useTransformSource);
+        $result = $service->generateHashPayloadWithStatus($asset, $generateDataUrl);
+        $resultReason = $result['reason'] ?? null;
 
-        if ($result['status'] === 'pending' && $useTransformSource) {
+        if ($result['status'] === 'pending') {
             $maxAttempts = $service->transformSourceMaxAttempts();
 
             if ($this->transformAttempt < $maxAttempts) {
@@ -56,8 +58,7 @@ class GenerateThumbhash extends BaseJob
                     'attempt' => $nextAttempt,
                     'maxAttempts' => $maxAttempts,
                     'delay' => $delay,
-                    'reason' => 'url_pending',
-                    'sourceMode' => 'transform',
+                    'reason' => $resultReason ?? 'pending',
                     'generateDataUrl' => $generateDataUrl,
                 ]);
 
@@ -76,25 +77,32 @@ class GenerateThumbhash extends BaseJob
                 'assetId' => (int)$asset->id,
                 'attempt' => $this->transformAttempt,
                 'maxAttempts' => $maxAttempts,
-                'reason' => 'url_pending',
-                'sourceMode' => 'transform',
+                'reason' => $resultReason ?? 'pending',
                 'generateDataUrl' => $generateDataUrl,
             ]);
 
-            $this->logEvent('warning', 'thumbhash.transform.fallback', [
+            $this->logEvent('error', 'thumbhash.generate.failure', [
                 'assetId' => (int)$asset->id,
-                'reason' => 'retry_exhausted',
-                'sourceMode' => 'original',
+                'reason' => 'transform_retry_exhausted',
+                'pendingReason' => $resultReason,
                 'generateDataUrl' => $generateDataUrl,
             ]);
 
-            $result = $service->generateHashPayloadWithStatus($asset, $generateDataUrl, false);
+            $this->markUtilityRunFailed();
+
+            $this->setProgress($queue, 1, Translation::prep('app', 'ThumbHash: Completed asset {assetId}', [
+                'assetId' => $this->assetId,
+            ]));
+
+            return;
         }
 
         $generated = $result['payload'];
 
         if ($generated !== null) {
             $service->saveHashForAsset($asset, $generated['hash'], $generated['dataUrl']);
+        } else {
+            $this->markUtilityRunFailed();
         }
 
         $this->setProgress($queue, 1, Translation::prep('app', 'ThumbHash: Completed asset {assetId}', [
@@ -129,5 +137,20 @@ class GenerateThumbhash extends BaseJob
         }
 
         Craft::info($message, self::LOG_CATEGORY);
+    }
+
+    private function markUtilityRunFailed(): void
+    {
+        $cache = Craft::$app->getCache();
+        $run = $cache->get(self::RUN_CACHE_KEY);
+
+        if (!is_array($run)) {
+            return;
+        }
+
+        $run['hasFailures'] = true;
+        $run['failureMessage'] ??= self::RUN_FAILURE_MESSAGE;
+
+        $cache->set(self::RUN_CACHE_KEY, $run);
     }
 }

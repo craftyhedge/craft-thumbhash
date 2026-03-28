@@ -15,6 +15,8 @@ use yii\log\Logger;
 class GenerateThumbhashBatch extends BaseBatchedJob
 {
     private const LOG_CATEGORY = 'thumbhash';
+    private const RUN_CACHE_KEY = 'thumbhash:utility:run:global';
+    private const RUN_FAILURE_MESSAGE = 'One or more images failed to generate thumbhashes. Check the ThumbHash logs for details.';
 
     /**
      * @var array<string>|string|null
@@ -27,8 +29,8 @@ class GenerateThumbhashBatch extends BaseBatchedJob
     public int $scanned = 0;
     public int $skippedCurrent = 0;
     public int $generated = 0;
-    public int $retried = 0;
-    public int $failed = 0;
+    public int $deferredForRetry = 0;
+    public int $failedBeforeRetry = 0;
 
     protected function before(): void
     {
@@ -37,8 +39,8 @@ class GenerateThumbhashBatch extends BaseBatchedJob
         $this->scanned = 0;
         $this->skippedCurrent = 0;
         $this->generated = 0;
-        $this->retried = 0;
-        $this->failed = 0;
+        $this->deferredForRetry = 0;
+        $this->failedBeforeRetry = 0;
     }
 
     protected function after(): void
@@ -49,8 +51,8 @@ class GenerateThumbhashBatch extends BaseBatchedJob
             'scanned' => $this->scanned,
             'skippedCurrent' => $this->skippedCurrent,
             'generated' => $this->generated,
-            'retried' => $this->retried,
-            'failed' => $this->failed,
+            'deferredForRetry' => $this->deferredForRetry,
+            'failedBeforeRetry' => $this->failedBeforeRetry,
             'volumes' => $this->volumes,
         ]);
     }
@@ -91,17 +93,16 @@ class GenerateThumbhashBatch extends BaseBatchedJob
 
         $service = Plugin::getInstance()->thumbhash;
         $generateDataUrl = $service->shouldGenerateDataUrl();
-        $useTransformSource = $service->shouldUseTransformSource();
 
         if ($service->isAssetCurrent($item, $generateDataUrl)) {
             $this->skippedCurrent++;
             return;
         }
 
-        $result = $service->generateHashPayloadWithStatus($item, $generateDataUrl, $useTransformSource);
+        $result = $service->generateHashPayloadWithStatus($item, $generateDataUrl);
 
-        if ($result['status'] === 'pending' && $useTransformSource) {
-            $this->retried++;
+        if ($result['status'] === 'pending') {
+            $this->deferredForRetry++;
 
             QueueHelper::push(
                 new GenerateThumbhash([
@@ -121,7 +122,8 @@ class GenerateThumbhashBatch extends BaseBatchedJob
             return;
         }
 
-        $this->failed++;
+        $this->failedBeforeRetry++;
+        $this->markUtilityRunFailed();
     }
 
     protected function defaultDescription(): ?string
@@ -149,5 +151,20 @@ class GenerateThumbhashBatch extends BaseBatchedJob
         }
 
         Craft::info($message, self::LOG_CATEGORY);
+    }
+
+    private function markUtilityRunFailed(): void
+    {
+        $cache = Craft::$app->getCache();
+        $run = $cache->get(self::RUN_CACHE_KEY);
+
+        if (!is_array($run)) {
+            return;
+        }
+
+        $run['hasFailures'] = true;
+        $run['failureMessage'] ??= self::RUN_FAILURE_MESSAGE;
+
+        $cache->set(self::RUN_CACHE_KEY, $run);
     }
 }

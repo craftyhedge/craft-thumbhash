@@ -45,7 +45,6 @@ class ThumbhashService extends Component
         $result = $this->generateHashPayloadWithStatus(
             $asset,
             $generateDataUrl,
-            $this->shouldUseTransformSource(),
         );
 
         return $result['payload'];
@@ -54,32 +53,29 @@ class ThumbhashService extends Component
     /**
      * Generate hash data and return status metadata for queue retry behavior.
      *
-     * @return array{status: string, payload: array{hash: string, dataUrl: ?string}|null}
+     * @return array{status: string, reason: string|null, payload: array{hash: string, dataUrl: ?string}|null}
      */
     public function generateHashPayloadWithStatus(
         Asset $asset,
         bool $generateDataUrl = false,
-        bool $useTransformSource = false,
     ): array {
-        $sourceMode = $useTransformSource ? 'transform' : 'original';
         $assetId = (int)$asset->id;
 
         $this->logEvent('debug', 'thumbhash.generate.start', [
             'assetId' => $assetId,
-            'sourceMode' => $sourceMode,
             'generateDataUrl' => $generateDataUrl,
         ]);
 
         if ($asset->kind !== Asset::KIND_IMAGE) {
             $this->logEvent('debug', 'thumbhash.generate.failure', [
                 'assetId' => $assetId,
-                'sourceMode' => $sourceMode,
                 'generateDataUrl' => $generateDataUrl,
                 'reason' => 'unsupported_kind',
             ]);
 
             return [
                 'status' => self::PAYLOAD_STATUS_FAILED,
+                'reason' => 'unsupported_kind',
                 'payload' => null,
             ];
         }
@@ -89,90 +85,18 @@ class ThumbhashService extends Component
         if ($extension === 'svg') {
             $this->logEvent('debug', 'thumbhash.generate.failure', [
                 'assetId' => $assetId,
-                'sourceMode' => $sourceMode,
                 'generateDataUrl' => $generateDataUrl,
                 'reason' => 'svg_unsupported',
             ]);
 
             return [
                 'status' => self::PAYLOAD_STATUS_FAILED,
+                'reason' => 'svg_unsupported',
                 'payload' => null,
             ];
         }
 
-        if ($useTransformSource) {
-            $result = $this->generateHashPayloadFromTransform($asset, $generateDataUrl);
-
-            if ($result['status'] !== self::PAYLOAD_STATUS_FAILED) {
-                return $result;
-            }
-        }
-
-        return $this->generateHashPayloadFromOriginal($asset, $generateDataUrl);
-    }
-
-    private function generateHashPayloadFromOriginal(Asset $asset, bool $generateDataUrl): array
-    {
-        $tempPath = null;
-        $assetId = (int)$asset->id;
-
-        try {
-            // Copy the asset to a temp file
-            $tempPath = $asset->getCopyOfFile();
-
-            if (!$tempPath || !file_exists($tempPath)) {
-                $this->logEvent('warning', 'thumbhash.generate.failure', [
-                    'assetId' => $assetId,
-                    'sourceMode' => 'original',
-                    'generateDataUrl' => $generateDataUrl,
-                    'reason' => 'local_file_missing',
-                ]);
-
-                return [
-                    'status' => self::PAYLOAD_STATUS_FAILED,
-                    'payload' => null,
-                ];
-            }
-
-            $payload = $this->generateHashPayloadFromPath($asset, $tempPath, $generateDataUrl);
-
-            if ($payload === null) {
-                $this->logEvent('warning', 'thumbhash.generate.failure', [
-                    'assetId' => $assetId,
-                    'sourceMode' => 'original',
-                    'generateDataUrl' => $generateDataUrl,
-                    'reason' => 'extract_failed',
-                ]);
-            } else {
-                $this->logEvent('debug', 'thumbhash.generate.success', [
-                    'assetId' => $assetId,
-                    'sourceMode' => 'original',
-                    'generateDataUrl' => $generateDataUrl,
-                ]);
-            }
-
-            return [
-                'status' => $payload === null ? self::PAYLOAD_STATUS_FAILED : self::PAYLOAD_STATUS_READY,
-                'payload' => $payload,
-            ];
-        } catch (\Throwable $e) {
-            $this->logEvent('error', 'thumbhash.generate.failure', [
-                'assetId' => $assetId,
-                'sourceMode' => 'original',
-                'generateDataUrl' => $generateDataUrl,
-                'reason' => 'read_failed',
-                'exceptionType' => $e::class,
-            ]);
-
-            return [
-                'status' => self::PAYLOAD_STATUS_FAILED,
-                'payload' => null,
-            ];
-        } finally {
-            if ($tempPath && file_exists($tempPath)) {
-                unlink($tempPath);
-            }
-        }
+        return $this->generateHashPayloadFromTransform($asset, $generateDataUrl);
     }
 
     private function generateHashPayloadFromTransform(Asset $asset, bool $generateDataUrl): array
@@ -185,13 +109,13 @@ class ThumbhashService extends Component
             if (!$transformUrl) {
                 $this->logEvent('info', 'thumbhash.transform.url_pending', [
                     'assetId' => $assetId,
-                    'sourceMode' => 'transform',
                     'generateDataUrl' => $generateDataUrl,
                     'reason' => 'url_pending',
                 ]);
 
                 return [
                     'status' => self::PAYLOAD_STATUS_PENDING,
+                    'reason' => 'url_pending',
                     'payload' => null,
                 ];
             }
@@ -201,13 +125,13 @@ class ThumbhashService extends Component
             if ($bytes === null) {
                 $this->logEvent('info', 'thumbhash.generate.failure', [
                     'assetId' => $assetId,
-                    'sourceMode' => 'transform',
                     'generateDataUrl' => $generateDataUrl,
                     'reason' => 'bytes_unavailable',
                 ]);
 
                 return [
                     'status' => self::PAYLOAD_STATUS_PENDING,
+                    'reason' => 'bytes_unavailable',
                     'payload' => null,
                 ];
             }
@@ -216,13 +140,13 @@ class ThumbhashService extends Component
             if (!$tempPath) {
                 $this->logEvent('error', 'thumbhash.generate.failure', [
                     'assetId' => $assetId,
-                    'sourceMode' => 'transform',
                     'generateDataUrl' => $generateDataUrl,
                     'reason' => 'temp_file_unavailable',
                 ]);
 
                 return [
                     'status' => self::PAYLOAD_STATUS_FAILED,
+                    'reason' => 'temp_file_unavailable',
                     'payload' => null,
                 ];
             }
@@ -231,36 +155,35 @@ class ThumbhashService extends Component
                 if (file_put_contents($tempPath, $bytes) === false) {
                     $this->logEvent('warning', 'thumbhash.generate.failure', [
                         'assetId' => $assetId,
-                        'sourceMode' => 'transform',
                         'generateDataUrl' => $generateDataUrl,
                         'reason' => 'write_failed',
                     ]);
 
                     return [
                         'status' => self::PAYLOAD_STATUS_FAILED,
+                        'reason' => 'write_failed',
                         'payload' => null,
                     ];
                 }
 
-                $payload = $this->generateHashPayloadFromPath($asset, $tempPath, $generateDataUrl);
+                $payload = $this->generateHashPayloadFromPath($tempPath, $generateDataUrl);
 
                 if ($payload === null) {
                     $this->logEvent('warning', 'thumbhash.generate.failure', [
                         'assetId' => $assetId,
-                        'sourceMode' => 'transform',
                         'generateDataUrl' => $generateDataUrl,
                         'reason' => 'extract_failed',
                     ]);
                 } else {
                     $this->logEvent('debug', 'thumbhash.generate.success', [
                         'assetId' => $assetId,
-                        'sourceMode' => 'transform',
                         'generateDataUrl' => $generateDataUrl,
                     ]);
                 }
 
                 return [
                     'status' => $payload === null ? self::PAYLOAD_STATUS_FAILED : self::PAYLOAD_STATUS_READY,
+                    'reason' => $payload === null ? 'extract_failed' : null,
                     'payload' => $payload,
                 ];
             } finally {
@@ -271,7 +194,6 @@ class ThumbhashService extends Component
         } catch (\Throwable $e) {
             $this->logEvent('warning', 'thumbhash.generate.failure', [
                 'assetId' => $assetId,
-                'sourceMode' => 'transform',
                 'generateDataUrl' => $generateDataUrl,
                 'reason' => 'fetch_exception',
                 'exceptionType' => $e::class,
@@ -279,12 +201,13 @@ class ThumbhashService extends Component
 
             return [
                 'status' => self::PAYLOAD_STATUS_FAILED,
+                'reason' => 'fetch_exception',
                 'payload' => null,
             ];
         }
     }
 
-    private function generateHashPayloadFromPath(Asset $asset, string $path, bool $generateDataUrl): ?array
+    private function generateHashPayloadFromPath(string $path, bool $generateDataUrl): ?array
     {
         // Resize and extract RGBA pixels
         if (extension_loaded('imagick')) {
@@ -320,7 +243,6 @@ class ThumbhashService extends Component
         if (!$normalizedUrl) {
             $this->logEvent('info', 'thumbhash.transform.fetch.result', [
                 'assetId' => $assetId,
-                'sourceMode' => 'transform',
                 'reason' => 'normalize_failed',
                 'durationMs' => $this->durationMs($startedAt),
             ]);
@@ -332,7 +254,6 @@ class ThumbhashService extends Component
 
         $this->logEvent('debug', 'thumbhash.transform.fetch.start', [
             'assetId' => $assetId,
-            'sourceMode' => 'transform',
             'url' => $sanitizedUrl,
         ]);
 
@@ -342,7 +263,6 @@ class ThumbhashService extends Component
                 if (!is_file($path)) {
                     $this->logEvent('info', 'thumbhash.transform.fetch.result', [
                         'assetId' => $assetId,
-                        'sourceMode' => 'transform',
                         'url' => $sanitizedUrl,
                         'reason' => 'local_file_missing',
                         'durationMs' => $this->durationMs($startedAt),
@@ -355,7 +275,6 @@ class ThumbhashService extends Component
                 if ($bytes === false) {
                     $this->logEvent('warning', 'thumbhash.transform.fetch.result', [
                         'assetId' => $assetId,
-                        'sourceMode' => 'transform',
                         'url' => $sanitizedUrl,
                         'reason' => 'read_failed',
                         'durationMs' => $this->durationMs($startedAt),
@@ -365,7 +284,6 @@ class ThumbhashService extends Component
                 if ($bytes !== false) {
                     $this->logEvent('debug', 'thumbhash.transform.fetch.result', [
                         'assetId' => $assetId,
-                        'sourceMode' => 'transform',
                         'url' => $sanitizedUrl,
                         'reason' => 'ok',
                         'durationMs' => $this->durationMs($startedAt),
@@ -381,7 +299,6 @@ class ThumbhashService extends Component
                 if ($bytes === false) {
                     $this->logEvent('warning', 'thumbhash.transform.fetch.result', [
                         'assetId' => $assetId,
-                        'sourceMode' => 'transform',
                         'url' => $sanitizedUrl,
                         'reason' => 'read_failed',
                         'durationMs' => $this->durationMs($startedAt),
@@ -391,7 +308,6 @@ class ThumbhashService extends Component
                 if ($bytes !== false) {
                     $this->logEvent('debug', 'thumbhash.transform.fetch.result', [
                         'assetId' => $assetId,
-                        'sourceMode' => 'transform',
                         'url' => $sanitizedUrl,
                         'reason' => 'ok',
                         'durationMs' => $this->durationMs($startedAt),
@@ -414,7 +330,6 @@ class ThumbhashService extends Component
             if ($statusCode < 200 || $statusCode >= 300) {
                 $this->logEvent('info', 'thumbhash.transform.fetch.result', [
                     'assetId' => $assetId,
-                    'sourceMode' => 'transform',
                     'url' => $sanitizedUrl,
                     'reason' => 'http_non_2xx',
                     'statusCode' => $statusCode,
@@ -429,7 +344,6 @@ class ThumbhashService extends Component
             if ($bytes === '') {
                 $this->logEvent('info', 'thumbhash.transform.fetch.result', [
                     'assetId' => $assetId,
-                    'sourceMode' => 'transform',
                     'url' => $sanitizedUrl,
                     'reason' => 'empty_body',
                     'statusCode' => $statusCode,
@@ -439,7 +353,6 @@ class ThumbhashService extends Component
             } else {
                 $this->logEvent('debug', 'thumbhash.transform.fetch.result', [
                     'assetId' => $assetId,
-                    'sourceMode' => 'transform',
                     'url' => $sanitizedUrl,
                     'reason' => 'ok',
                     'statusCode' => $statusCode,
@@ -452,7 +365,6 @@ class ThumbhashService extends Component
         } catch (\Throwable $e) {
             $this->logEvent('warning', 'thumbhash.transform.fetch.result', [
                 'assetId' => $assetId,
-                'sourceMode' => 'transform',
                 'url' => $sanitizedUrl,
                 'reason' => 'fetch_exception',
                 'durationMs' => $this->durationMs($startedAt),
@@ -619,21 +531,7 @@ class ThumbhashService extends Component
     }
 
     /**
-     * Whether generation should use a Craft transform as source.
-     */
-    public function shouldUseTransformSource(): bool
-    {
-        $plugin = Plugin::getInstance();
-
-        if ($plugin === null) {
-            return false;
-        }
-
-        return (bool)$plugin->getSettings()->useTransformSource;
-    }
-
-    /**
-     * Transform definition used for transform-source mode.
+     * Transform definition used for hash generation.
      *
      * @return array<string, mixed>
      */

@@ -22,6 +22,7 @@ class UtilitiesController extends Controller
 {
     private const RUN_CACHE_KEY_PREFIX = 'thumbhash:utility:run:';
     private const RUN_CACHE_KEY = self::RUN_CACHE_KEY_PREFIX . 'global';
+    private const RUN_FAILURE_MESSAGE = 'One or more images failed to generate thumbhashes. Check the ThumbHash logs for details.';
 
     private function isSvgAsset(Asset $asset): bool
     {
@@ -133,6 +134,8 @@ class UtilitiesController extends Controller
             'jobId' => (string)$jobId,
             'total' => $total,
             'dateStarted' => time(),
+            'hasFailures' => false,
+            'failureMessage' => null,
         ]);
 
         return $this->asJson([
@@ -174,19 +177,24 @@ class UtilitiesController extends Controller
         $runStatus = null;
         $runState = 'idle';
         $runError = null;
+        $runHasFailures = false;
         $hasRun = is_array($run) && isset($run['total'], $run['jobId']);
 
         if ($hasRun) {
             $runState = 'running';
             $runTotal = (int)$run['total'];
             $jobId = (string)$run['jobId'];
+            $runHasFailures = (bool)($run['hasFailures'] ?? false);
+            $runError = isset($run['failureMessage']) && $run['failureMessage'] !== ''
+                ? (string)$run['failureMessage']
+                : null;
 
             try {
                 if ($queue instanceof QueueInterface) {
                     $details = $queue->getJobDetails($jobId);
                     $runStatus = (int)$details['status'];
                     $progress = (int)($details['progress'] ?? 0);
-                    $runError = isset($details['error']) && $details['error'] !== ''
+                    $queueError = isset($details['error']) && $details['error'] !== ''
                         ? (string)$details['error']
                         : null;
                     $runProcessed = (int)floor(($runTotal * $progress) / 100);
@@ -195,10 +203,17 @@ class UtilitiesController extends Controller
                         $runFailed = 1;
                         $runProcessed = $runTotal;
                         $runState = 'failed';
+                        $runError = $queueError;
                         $hasRun = false;
                     } elseif ($runStatus === YiiQueue::STATUS_DONE) {
                         $runProcessed = $runTotal;
-                        $runState = 'completed';
+                        if ($runHasFailures) {
+                            $runFailed = 1;
+                            $runState = 'completed_with_failures';
+                            $runError ??= self::RUN_FAILURE_MESSAGE;
+                        } else {
+                            $runState = 'completed';
+                        }
                         $hasRun = false;
                     }
                 }
@@ -206,11 +221,17 @@ class UtilitiesController extends Controller
                 // Job not found in queue anymore -> completed.
                 $runStatus = YiiQueue::STATUS_DONE;
                 $runProcessed = $runTotal;
-                $runState = 'completed';
+                if ($runHasFailures) {
+                    $runFailed = 1;
+                    $runState = 'completed_with_failures';
+                    $runError ??= self::RUN_FAILURE_MESSAGE;
+                } else {
+                    $runState = 'completed';
+                }
                 $hasRun = false;
             }
 
-            if ($runState === 'completed') {
+            if ($runState === 'completed' || $runState === 'completed_with_failures') {
                 Craft::$app->getCache()->delete($this->runCacheKey());
             }
         }

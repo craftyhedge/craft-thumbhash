@@ -17,10 +17,10 @@
         </p>
     {% endif %}
 
-    <div class="buttons">
+    <div class="buttons" style="display:flex; align-items:center; gap:var(--s); flex-wrap:wrap;">
         <button type="submit" class="btn submit">{{ 'Generate'|t('thumbhash') }}</button>
         <button type="button" class="btn" id="thumbhash-clear-all">{{ 'Clear All'|t('thumbhash') }}</button>
-        <div class="utility-status"></div>
+        <div class="utility-status" style="flex:1 1 16rem; min-width:0; display:flex; align-items:center;"></div>
     </div>
 </form>
 
@@ -213,6 +213,17 @@
         $status.text(Craft.t('thumbhash', 'Processing failed.'));
     };
 
+    const setCompletedWithFailuresStatus = (message) => {
+        const trimmedMessage = String(message || '').trim();
+
+        if (trimmedMessage) {
+            $status.text(trimmedMessage);
+            return;
+        }
+
+        $status.text(Craft.t('thumbhash', 'Processing completed with failures. Check the ThumbHash logs for details.'));
+    };
+
     const stopPolling = () => {
         if (!pollTimer) {
             return;
@@ -252,6 +263,14 @@
                     stopPolling();
                     setButtonEnabled(true);
                     setFailedStatus(runError);
+                    return;
+                }
+
+                if (runState === 'completed_with_failures') {
+                    stopPolling();
+                    setButtonEnabled(true);
+                    await loadGridRows();
+                    setCompletedWithFailuresStatus(runError);
                     return;
                 }
 
@@ -354,6 +373,13 @@
 
             if (runState === 'failed') {
                 setFailedStatus(runError);
+                setButtonEnabled(true);
+                return;
+            }
+
+            if (runState === 'completed_with_failures') {
+                await loadGridRows();
+                setCompletedWithFailuresStatus(runError);
                 setButtonEnabled(true);
                 return;
             }
