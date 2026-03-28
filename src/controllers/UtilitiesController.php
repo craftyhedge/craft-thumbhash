@@ -7,14 +7,11 @@ use craft\elements\Asset;
 use craft\helpers\Queue as QueueHelper;
 use craft\queue\QueueInterface;
 use craft\web\Controller;
-use craftyhedge\craftthumbhash\db\Table;
 use craftyhedge\craftthumbhash\jobs\GenerateThumbhashBatch;
 use craftyhedge\craftthumbhash\Plugin;
 use craftyhedge\craftthumbhash\models\Settings;
-use craftyhedge\craftthumbhash\records\ThumbhashRecord;
 use craftyhedge\craftthumbhash\utilities\ThumbhashUtility;
 use yii\base\InvalidArgumentException;
-use yii\db\Expression;
 use yii\queue\Queue as YiiQueue;
 use yii\web\Response;
 
@@ -256,41 +253,13 @@ class UtilitiesController extends Controller
         $this->requireAcceptsJson();
         $this->requirePermission('utility:' . ThumbhashUtility::id());
 
-        $assets = $this->utilityAssetQuery()
-            ->leftJoin(Table::THUMBHASHES . ' thumbhashes', '[[thumbhashes.assetId]] = [[elements.id]]')
-            ->orderBy(new Expression("CASE WHEN [[thumbhashes.dataUrl]] IS NULL OR [[thumbhashes.dataUrl]] = '' THEN 0 ELSE 1 END"))
-            ->addOrderBy(['elements.id' => SORT_ASC])
-            ->all();
-
-        $assetIds = array_map(static fn(Asset $asset) => (int)$asset->id, $assets);
-
-        $records = [];
-        if (!empty($assetIds)) {
-            $records = ThumbhashRecord::find()
-                ->where(['assetId' => $assetIds])
-                ->indexBy('assetId')
-                ->all();
-        }
-
-        $rows = [];
-        foreach ($assets as $asset) {
-            if ($this->isSvgAsset($asset)) {
-                continue;
-            }
-
-            $record = $records[$asset->id] ?? null;
-
-            $rows[] = [
-                'assetId' => (int)$asset->id,
-                'name' => (string)($asset->title ?: $asset->filename),
-                'editUrl' => (string)($asset->getCpEditUrl() ?? ''),
-                'dataUrl' => $record?->dataUrl,
-            ];
-        }
+        $rows = Plugin::getInstance()->thumbhash->getUtilityPngRows();
+        $hashRows = Plugin::getInstance()->thumbhash->getUtilityHashRows();
 
         return $this->asJson([
             'success' => true,
             'rows' => $rows,
+            'hashRows' => $hashRows,
         ]);
     }
 

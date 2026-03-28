@@ -931,6 +931,48 @@ class ThumbhashService extends Component
     }
 
     /**
+     * Get utility grid rows from persisted PNG placeholders.
+     *
+     * @return array<int, array{assetId: int, dataUrl: string}>
+     */
+    public function getUtilityPngRows(): array
+    {
+        $records = ThumbhashRecord::find()
+            ->where(['not', ['dataUrl' => null]])
+            ->andWhere(['!=', 'dataUrl', ''])
+            ->orderBy(['assetId' => SORT_ASC])
+            ->all();
+
+        return array_map(static function(ThumbhashRecord $record): array {
+            return [
+                'assetId' => (int)$record->assetId,
+                'dataUrl' => (string)$record->dataUrl,
+            ];
+        }, $records);
+    }
+
+    /**
+     * Get utility fallback rows from persisted thumbhash strings.
+     *
+     * @return array<int, array{assetId: int, hash: string}>
+     */
+    public function getUtilityHashRows(): array
+    {
+        $records = ThumbhashRecord::find()
+            ->where(['not', ['hash' => null]])
+            ->andWhere(['!=', 'hash', ''])
+            ->orderBy(['assetId' => SORT_ASC])
+            ->all();
+
+        return array_map(static function(ThumbhashRecord $record): array {
+            return [
+                'assetId' => (int)$record->assetId,
+                'hash' => (string)$record->hash,
+            ];
+        }, $records);
+    }
+
+    /**
      * Get the stored or decoded PNG data URL for an asset.
      * Returns the pre-computed value from DB if available, otherwise decodes on the fly.
      */
