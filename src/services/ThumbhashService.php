@@ -246,7 +246,7 @@ class ThumbhashService extends Component
 
         try {
             if (str_starts_with($normalizedUrl, 'file://')) {
-                $path = substr($normalizedUrl, 7);
+                $path = $this->decodeFileUrlPath($normalizedUrl);
                 if (!is_file($path)) {
                     $this->logEvent('info', 'thumbhash.transform.fetch.result', [
                         'assetId' => $assetId,
@@ -488,6 +488,17 @@ class ThumbhashService extends Component
 
             return false;
         }
+    }
+
+    private function decodeFileUrlPath(string $fileUrl): string
+    {
+        $path = parse_url($fileUrl, PHP_URL_PATH);
+
+        if (!is_string($path) || $path === '') {
+            return '';
+        }
+
+        return rawurldecode($path);
     }
 
     private function transformFetchFailureReason(\Throwable $e): string
