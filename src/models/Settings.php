@@ -45,7 +45,6 @@ class Settings extends Model
     public array $sourceTransform = [
         'mode' => 'fit',
         'width' => 100,
-        'height' => 100,
     ];
 
     /**

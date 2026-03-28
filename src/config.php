@@ -33,11 +33,10 @@ return [
     // 'pngStripMetadata' => true,
 
     // Transform definition used as the source image for hash generation.
-    // Default: fit 100x100
+    // Default: fit width 100 (height auto)
     // 'sourceTransform' => [
     //     'mode' => 'fit',
     //     'width' => 100,
-    //     'height' => 100,
     // ],
 
     // CSS styles applied automatically when using `data-thumbhash-bg`.

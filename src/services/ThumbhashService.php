@@ -707,7 +707,6 @@ class ThumbhashService extends Component
             return [
                 'mode' => 'fit',
                 'width' => 100,
-                'height' => 100,
             ];
         }
 
@@ -717,7 +716,6 @@ class ThumbhashService extends Component
             return [
                 'mode' => 'fit',
                 'width' => 100,
-                'height' => 100,
             ];
         }
 

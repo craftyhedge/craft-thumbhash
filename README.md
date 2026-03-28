@@ -19,7 +19,7 @@ This plugin supports two frontend delivery approaches:
 - For zero-JavaScript placeholders, inline the pre-decoded PNG data URL. No network requests or JS decoding, while still being smaller and usually better looking than most regular LQIPs.
 
 ### Backend
-- Triggers a transform for a 100×100px thumbnail of the original image and encodes it to a compact base64 hash string (~28 bytes) using the ThumbHash algorithm.
+- Triggers a fit transform (default width 100px, height auto) of the original image and encodes it to a compact base64 hash string (~28 bytes) using the ThumbHash algorithm.
 - Decodes the hash to a PNG data URL and stores it in the database for inline use without JavaScript.
 - ThumbHash generation is performed asynchronously in a queue job to avoid blocking the request thread.
 - Placeholders are generated on new uploads and file replacements, with a CLI command for backfilling existing assets.
@@ -95,8 +95,6 @@ This is a deliberate tradeoff, not a blanket performance rule. A non-deferred sc
 ```
 
 Your lazy loading library (lazysizes, lozad, etc.) handles swapping `data-src` → `src` when the element enters the viewport.
-
-Note that this browser-decoded placeholder uses the standard ThumbHash PNG output, not the plugin's optional server-side PNG compression. That means the resulting data URL may be a bit larger than `thumbhashDataUrl(asset)`, but it is generated locally from the inlined hash with no additional request and is typically ready essentially immediately.
 
 ```twig
 {# For each image, use data-thumbhash with your preferred lazy loading approach #}
@@ -203,6 +201,12 @@ The decoder exposes a global API for manual use:
 
 This API mirrors the default ThumbHash browser encoder. It does not use the plugin's server-side compressed PNG generation path.
 
+- Scope: `window.thumbhash` is a browser global and only exists on pages where `thumbhashScript()` is included.
+- Availability: it is available to any frontend JavaScript (vanilla JS, Alpine, React, Vue, etc.) after the decoder script has loaded.
+- Not available in PHP or CLI contexts.
+
+Example:
+
 ```js
 // Decode a base64 thumbhash to a data URL
 var dataUrl = window.thumbhash.toDataURL('BASE64_HASH');
@@ -251,11 +255,10 @@ return [
     // 'pngStripMetadata' => true,
 
     // Transform definition used as the source image for hash generation.
-    // Default: fit 100x100
+    // Default: fit width 100 (height auto)
     // 'sourceTransform' => [
     //     'mode' => 'fit',
     //     'width' => 100,
-    //     'height' => 100,
     // ],
 
     // CSS styles applied automatically when using `data-thumbhash-bg`.
