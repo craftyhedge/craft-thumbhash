@@ -8,13 +8,18 @@ Automatic thumbhash placeholder generation for Craft CMS image assets.
 
 ThumbHash is a compact image placeholder with two implementation approaches:
 
-- For the lightest HTML payload, use the base64 hash string with the included client-side JS decoder.
-- For zero-JavaScript placeholders, use the pre-decoded PNG data URL. No network requests or JS decoding.
+#### JS Decoder
+
+- Inline a tiny base64 hash string (~28 bytes) in your HTML and use the included client-side JS decoder to convert it to a small PNG data URL on the fly.
+
+#### Inline Data URLs
+
+- For zero-JavaScript placeholders, use and inline the pre-decoded PNG data URL. No network requests or JS decoding and still smaller and better looking than most regular LQIPs.
 
 <table>
     <tr>
-        <td><img width="200px" height="268px" src="assets/thumbhash-example.png" alt="Example of a thumbhash placeholder decoded to a tiny PNG data URL" /></td>
-        <td><img width="200px" height="268px" src="assets/image-example.avif" alt="Example full image" /></td>
+        <td><img width="300px" height="402px" src="assets/thumbhash-example.png" alt="Example of a thumbhash placeholder decoded to a tiny PNG data URL" /></td>
+        <td><img width="300px" height="402px" src="assets/image-example.avif" alt="Example full image" /></td>
     </tr>
 </table>
 
@@ -55,7 +60,9 @@ php craft plugin/install thumbhash
 ### Twig Templates
 
 The decoder script will decode each hash to a tiny PNG data URL and set it as the `src` on the element.
-For sheer speed from page load to placeholder rendering, keep the decoder script registered in the `<head>` and leave the default setting `deferDecoderScript` set to `false` so the decoder runs as soon as possible.
+For the earliest possible placeholder paint, keep the decoder script registered in the `<head>` and leave the default setting `deferDecoderScript` set to `false` so the decoder can run as soon as possible.
+
+This is a deliberate tradeoff, not a blanket performance rule. A non-deferred script in the `<head>` can add some parser-blocking work, but it also allows placeholders to appear sooner. If you would rather minimize the impact of a head script and can accept placeholders appearing a little later, set `deferDecoderScript` to `true`.
 
 ```twig
 {# Register the decoder asset (safe to call; Craft includes it once per page) #}
