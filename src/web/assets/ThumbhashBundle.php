@@ -3,6 +3,7 @@
 namespace craftyhedge\craftthumbhash\web\assets;
 
 use craft\web\AssetBundle;
+use craftyhedge\craftthumbhash\Plugin;
 
 class ThumbhashBundle extends AssetBundle
 {
@@ -10,7 +11,7 @@ class ThumbhashBundle extends AssetBundle
     {
         $this->sourcePath = __DIR__ . '/dist';
         $this->js = ['thumbhash-decode.js'];
-        $this->jsOptions = ['defer' => false];
+        $this->jsOptions = ['defer' => (bool)Plugin::getInstance()->getSettings()->deferDecoderScript];
 
         parent::init();
     }

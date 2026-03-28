@@ -209,6 +209,11 @@ return [
     //     'backgroundPosition' => 'center',
     // ],
 
+    // Load the frontend ThumbHash decoder script with the defer attribute.
+    // Set to false to keep the script non-deferred.
+    // Default: false
+    // 'deferDecoderScript' => false,
+
     // Include debug-level plugin logs when dev mode is enabled.
     // Default: false
     // 'logDebug' => false,
