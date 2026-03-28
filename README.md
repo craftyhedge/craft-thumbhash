@@ -26,11 +26,28 @@ This plugin supports two frontend delivery approaches:
 
 ### JS Decoder vs. Inline Data URLs
 
-- The JS decoder is very fast. On desktop-class runtimes, decoding a hash to a data URL is typically well under 1ms; mobile performance varies by device.
-- The client-side decoder uses the standard ThumbHash PNG encoder in the browser. It does not apply the plugin's server-side PNG compression settings.
-- When `generateDataUrl` is enabled (default), the plugin can store a compressed PNG data URL in the database for the no-JS path. That usually produces a smaller inline PNG than decoding the same hash on the client.
-- The base64 hash string is around ~28 bytes, while the decoded PNG data URL is typically around ~0.8-2KB per image, depending on the image content and compression settings. Gzip/Brotli compression can further reduce the data URL size when served from your server.
-- In practice, the larger client-decoded PNG usually isn't a problem: the browser is decoding from an already-inlined hash string, there is no extra network request, and the decode itself happens extremely quickly.
+#### JS Decoder (hash in markup)
+
+Use this when you want the smallest per-image HTML payload.
+
+- Store only the base64 hash in markup (typically around ~28 bytes).
+- Decode happens in the browser and is typically very fast (often well under 1ms on desktop-class runtimes; mobile varies by device).
+- No extra network request for the placeholder.
+- Uses the standard browser-side ThumbHash PNG encoder, so it does not apply the plugin's server-side PNG compression settings.
+
+#### Inline Data URLs (pre-decoded PNG)
+
+Use this when you want a no-JavaScript placeholder path.
+
+- Store the PNG data URL directly in markup (typically around ~0.8-2KB per image before HTTP compression).
+- No decode step in the browser and no extra network request.
+- When `generateDataUrl` is enabled (default), the plugin can store a server-generated, compressed PNG data URL that is often smaller than client-decoding the same hash.
+
+#### Quick rule of thumb
+
+- Prefer JS Decoder for smallest HTML payload per image.
+- Prefer Inline Data URLs for zero-JS rendering.
+- Both approaches avoid an extra placeholder request.
 
 If your images are hosted externally and that service goes down for whatever reason, users will always get a placeholder.
 
