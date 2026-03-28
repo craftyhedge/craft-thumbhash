@@ -57,4 +57,21 @@ return [
     // Include debug-level plugin logs when dev mode is enabled.
     // Default: false
     // 'logDebug' => false,
+
+    // Maximum allowed transform response size in bytes.
+    // Helps avoid excessive memory use when transform endpoints misbehave.
+    // Default: 5242880 (5 MiB)
+    // 'transformFetchMaxBytes' => 5242880,
+
+    // Total timeout in seconds for transform fetch requests.
+    // Default: 20.0
+    // 'transformFetchTimeout' => 20.0,
+
+    // Connection timeout in seconds for transform fetch requests.
+    // Default: 5.0
+    // 'transformFetchConnectTimeout' => 5.0,
+
+    // Per-read timeout in seconds for streamed transform responses.
+    // Default: 10.0
+    // 'transformFetchReadTimeout' => 10.0,
 ];

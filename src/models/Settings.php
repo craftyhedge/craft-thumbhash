@@ -68,4 +68,24 @@ class Settings extends Model
      * Whether to include debug-level plugin logs in dev mode.
      */
     public bool $logDebug = false;
+
+    /**
+     * Maximum allowed transform response size in bytes.
+     */
+    public int $transformFetchMaxBytes = 5242880;
+
+    /**
+     * Total timeout (seconds) for transform fetch requests.
+     */
+    public float $transformFetchTimeout = 20.0;
+
+    /**
+     * Connection timeout (seconds) for transform fetch requests.
+     */
+    public float $transformFetchConnectTimeout = 5.0;
+
+    /**
+     * Read timeout (seconds) for streamed transform responses.
+     */
+    public float $transformFetchReadTimeout = 10.0;
 }

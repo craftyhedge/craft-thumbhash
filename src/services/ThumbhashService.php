@@ -5,6 +5,7 @@ namespace craftyhedge\craftthumbhash\services;
 use Craft;
 use craft\elements\Asset;
 use craft\helpers\UrlHelper;
+use Psr\Http\Message\ResponseInterface;
 use samdark\log\PsrMessage;
 use Thumbhash\Thumbhash;
 use craftyhedge\craftthumbhash\Plugin;
@@ -119,22 +120,6 @@ class ThumbhashService extends Component
                 ];
             }
 
-            $bytes = $this->fetchTransformBytes($transformUrl, $assetId);
-
-            if ($bytes === null) {
-                $this->logEvent('info', 'thumbhash.generate.failure', [
-                    'assetId' => $assetId,
-                    'generateDataUrl' => $generateDataUrl,
-                    'reason' => 'bytes_unavailable',
-                ]);
-
-                return [
-                    'status' => self::PAYLOAD_STATUS_FAILED,
-                    'reason' => 'bytes_unavailable',
-                    'payload' => null,
-                ];
-            }
-
             $tempPath = tempnam(sys_get_temp_dir(), 'thumbhash_tf_');
             if (!$tempPath) {
                 $this->logEvent('error', 'thumbhash.generate.failure', [
@@ -151,16 +136,18 @@ class ThumbhashService extends Component
             }
 
             try {
-                if (file_put_contents($tempPath, $bytes) === false) {
-                    $this->logEvent('warning', 'thumbhash.generate.failure', [
+                $fetched = $this->fetchTransformToPath($transformUrl, $tempPath, $assetId);
+
+                if (!$fetched) {
+                    $this->logEvent('info', 'thumbhash.generate.failure', [
                         'assetId' => $assetId,
                         'generateDataUrl' => $generateDataUrl,
-                        'reason' => 'write_failed',
+                        'reason' => 'bytes_unavailable',
                     ]);
 
                     return [
                         'status' => self::PAYLOAD_STATUS_FAILED,
-                        'reason' => 'write_failed',
+                        'reason' => 'bytes_unavailable',
                         'payload' => null,
                     ];
                 }
@@ -234,9 +221,10 @@ class ThumbhashService extends Component
         ];
     }
 
-    private function fetchTransformBytes(string $url, ?int $assetId = null): ?string
+    private function fetchTransformToPath(string $url, string $targetPath, ?int $assetId = null): bool
     {
         $startedAt = microtime(true);
+        $maxBytes = $this->transformFetchMaxBytes();
         $normalizedUrl = $this->normalizeTransformUrl($url);
 
         if (!$normalizedUrl) {
@@ -246,7 +234,7 @@ class ThumbhashService extends Component
                 'durationMs' => $this->durationMs($startedAt),
             ]);
 
-            return null;
+            return false;
         }
 
         $sanitizedUrl = $this->sanitizeUrlForLog($normalizedUrl);
@@ -267,63 +255,168 @@ class ThumbhashService extends Component
                         'durationMs' => $this->durationMs($startedAt),
                     ]);
 
-                    return null;
+                    return false;
                 }
 
-                $bytes = file_get_contents($path);
-                if ($bytes === false) {
+                $size = @filesize($path);
+                if (is_int($size) && $size > $maxBytes) {
+                    $this->logEvent('info', 'thumbhash.transform.fetch.result', [
+                        'assetId' => $assetId,
+                        'url' => $sanitizedUrl,
+                        'reason' => 'response_too_large',
+                        'maxBytes' => $maxBytes,
+                        'bytes' => $size,
+                        'durationMs' => $this->durationMs($startedAt),
+                    ]);
+
+                    return false;
+                }
+
+                if (!@copy($path, $targetPath)) {
                     $this->logEvent('warning', 'thumbhash.transform.fetch.result', [
                         'assetId' => $assetId,
                         'url' => $sanitizedUrl,
-                        'reason' => 'read_failed',
+                        'reason' => 'copy_failed',
                         'durationMs' => $this->durationMs($startedAt),
                     ]);
+
+                    return false;
                 }
 
-                if ($bytes !== false) {
-                    $this->logEvent('debug', 'thumbhash.transform.fetch.result', [
+                $targetSize = @filesize($targetPath);
+                if (!is_int($targetSize) || $targetSize <= 0) {
+                    $this->logEvent('info', 'thumbhash.transform.fetch.result', [
                         'assetId' => $assetId,
                         'url' => $sanitizedUrl,
-                        'reason' => 'ok',
+                        'reason' => 'empty_body',
                         'durationMs' => $this->durationMs($startedAt),
-                        'bytes' => strlen($bytes),
+                        'bytes' => 0,
                     ]);
+
+                    return false;
                 }
 
-                return $bytes === false ? null : $bytes;
+                if ($targetSize > $maxBytes) {
+                    $this->logEvent('info', 'thumbhash.transform.fetch.result', [
+                        'assetId' => $assetId,
+                        'url' => $sanitizedUrl,
+                        'reason' => 'response_too_large',
+                        'maxBytes' => $maxBytes,
+                        'bytes' => $targetSize,
+                        'durationMs' => $this->durationMs($startedAt),
+                    ]);
+
+                    return false;
+                }
+
+                $this->logEvent('debug', 'thumbhash.transform.fetch.result', [
+                    'assetId' => $assetId,
+                    'url' => $sanitizedUrl,
+                    'reason' => 'ok',
+                    'durationMs' => $this->durationMs($startedAt),
+                    'bytes' => $targetSize,
+                ]);
+
+                return true;
             }
 
             if (is_file($normalizedUrl)) {
-                $bytes = file_get_contents($normalizedUrl);
-                if ($bytes === false) {
+                $size = @filesize($normalizedUrl);
+                if (is_int($size) && $size > $maxBytes) {
+                    $this->logEvent('info', 'thumbhash.transform.fetch.result', [
+                        'assetId' => $assetId,
+                        'url' => $sanitizedUrl,
+                        'reason' => 'response_too_large',
+                        'maxBytes' => $maxBytes,
+                        'bytes' => $size,
+                        'durationMs' => $this->durationMs($startedAt),
+                    ]);
+
+                    return false;
+                }
+
+                if (!@copy($normalizedUrl, $targetPath)) {
                     $this->logEvent('warning', 'thumbhash.transform.fetch.result', [
                         'assetId' => $assetId,
                         'url' => $sanitizedUrl,
-                        'reason' => 'read_failed',
+                        'reason' => 'copy_failed',
                         'durationMs' => $this->durationMs($startedAt),
                     ]);
+
+                    return false;
                 }
 
-                if ($bytes !== false) {
-                    $this->logEvent('debug', 'thumbhash.transform.fetch.result', [
+                $targetSize = @filesize($targetPath);
+                if (!is_int($targetSize) || $targetSize <= 0) {
+                    $this->logEvent('info', 'thumbhash.transform.fetch.result', [
                         'assetId' => $assetId,
                         'url' => $sanitizedUrl,
-                        'reason' => 'ok',
+                        'reason' => 'empty_body',
                         'durationMs' => $this->durationMs($startedAt),
-                        'bytes' => strlen($bytes),
+                        'bytes' => 0,
                     ]);
+
+                    return false;
                 }
 
-                return $bytes === false ? null : $bytes;
+                if ($targetSize > $maxBytes) {
+                    $this->logEvent('info', 'thumbhash.transform.fetch.result', [
+                        'assetId' => $assetId,
+                        'url' => $sanitizedUrl,
+                        'reason' => 'response_too_large',
+                        'maxBytes' => $maxBytes,
+                        'bytes' => $targetSize,
+                        'durationMs' => $this->durationMs($startedAt),
+                    ]);
+
+                    return false;
+                }
+
+                $this->logEvent('debug', 'thumbhash.transform.fetch.result', [
+                    'assetId' => $assetId,
+                    'url' => $sanitizedUrl,
+                    'reason' => 'ok',
+                    'durationMs' => $this->durationMs($startedAt),
+                    'bytes' => $targetSize,
+                ]);
+
+                return true;
             }
 
             $client = Craft::createGuzzleClient([
-                'timeout' => 20,
-                'connect_timeout' => 5,
+                'timeout' => $this->transformFetchTimeout(),
+                'connect_timeout' => $this->transformFetchConnectTimeout(),
+                'read_timeout' => $this->transformFetchReadTimeout(),
                 'http_errors' => false,
+                'allow_redirects' => false,
             ]);
 
-            $response = $client->get($normalizedUrl);
+            $response = $client->get($normalizedUrl, [
+                'sink' => $targetPath,
+                'on_headers' => function (ResponseInterface $response) use ($maxBytes): void {
+                    $contentLength = trim($response->getHeaderLine('Content-Length'));
+                    if ($contentLength !== '' && is_numeric($contentLength) && (int)$contentLength > $maxBytes) {
+                        throw new \RuntimeException('response_too_large');
+                    }
+
+                    $contentType = $response->getHeaderLine('Content-Type');
+                    if (!$this->isSupportedTransformContentType($contentType)) {
+                        throw new \RuntimeException('unsupported_content_type');
+                    }
+                },
+                'progress' => function (
+                    $downloadTotal,
+                    $downloaded,
+                    $uploadTotal,
+                    $uploaded
+                ) use ($maxBytes): void {
+                    $downloaded = (int)$downloaded;
+
+                    if ($downloaded > $maxBytes) {
+                        throw new \RuntimeException('response_too_large');
+                    }
+                },
+            ]);
             $statusCode = $response->getStatusCode();
 
             if ($statusCode < 200 || $statusCode >= 300) {
@@ -335,12 +428,11 @@ class ThumbhashService extends Component
                     'durationMs' => $this->durationMs($startedAt),
                 ]);
 
-                return null;
+                return false;
             }
 
-            $bytes = (string)$response->getBody();
-
-            if ($bytes === '') {
+            $bytes = @filesize($targetPath);
+            if (!is_int($bytes) || $bytes <= 0) {
                 $this->logEvent('info', 'thumbhash.transform.fetch.result', [
                     'assetId' => $assetId,
                     'url' => $sanitizedUrl,
@@ -348,30 +440,92 @@ class ThumbhashService extends Component
                     'statusCode' => $statusCode,
                     'durationMs' => $this->durationMs($startedAt),
                     'bytes' => 0,
+                    'maxBytes' => $maxBytes,
                 ]);
-            } else {
-                $this->logEvent('debug', 'thumbhash.transform.fetch.result', [
-                    'assetId' => $assetId,
-                    'url' => $sanitizedUrl,
-                    'reason' => 'ok',
-                    'statusCode' => $statusCode,
-                    'durationMs' => $this->durationMs($startedAt),
-                    'bytes' => strlen($bytes),
-                ]);
+
+                return false;
             }
 
-            return $bytes !== '' ? $bytes : null;
+            if ($bytes > $maxBytes) {
+                $this->logEvent('info', 'thumbhash.transform.fetch.result', [
+                    'assetId' => $assetId,
+                    'url' => $sanitizedUrl,
+                    'reason' => 'response_too_large',
+                    'statusCode' => $statusCode,
+                    'durationMs' => $this->durationMs($startedAt),
+                    'bytes' => $bytes,
+                    'maxBytes' => $maxBytes,
+                ]);
+
+                return false;
+            }
+
+            $this->logEvent('debug', 'thumbhash.transform.fetch.result', [
+                'assetId' => $assetId,
+                'url' => $sanitizedUrl,
+                'reason' => 'ok',
+                'statusCode' => $statusCode,
+                'durationMs' => $this->durationMs($startedAt),
+                'bytes' => $bytes,
+                'maxBytes' => $maxBytes,
+            ]);
+
+            return true;
         } catch (\Throwable $e) {
+            $reason = $this->transformFetchFailureReason($e);
+
             $this->logEvent('warning', 'thumbhash.transform.fetch.result', [
                 'assetId' => $assetId,
                 'url' => $sanitizedUrl,
-                'reason' => 'fetch_exception',
+                'reason' => $reason,
                 'durationMs' => $this->durationMs($startedAt),
                 'exceptionType' => $e::class,
             ]);
 
-            return null;
+            if (is_file($targetPath)) {
+                @unlink($targetPath);
+            }
+
+            return false;
         }
+    }
+
+    private function transformFetchFailureReason(\Throwable $e): string
+    {
+        $message = strtolower(trim($e->getMessage()));
+
+        if ($message === 'response_too_large') {
+            return 'response_too_large';
+        }
+
+        if ($message === 'unsupported_content_type') {
+            return 'unsupported_content_type';
+        }
+
+        if ($message === 'stream_read_timeout') {
+            return 'stream_read_timeout';
+        }
+
+        return 'fetch_exception';
+    }
+
+    private function isSupportedTransformContentType(string $contentType): bool
+    {
+        $normalized = strtolower(trim($contentType));
+        if ($normalized === '') {
+            return true;
+        }
+
+        $semiPos = strpos($normalized, ';');
+        if ($semiPos !== false) {
+            $normalized = trim(substr($normalized, 0, $semiPos));
+        }
+
+        if (str_starts_with($normalized, 'image/')) {
+            return true;
+        }
+
+        return in_array($normalized, ['application/octet-stream', 'binary/octet-stream'], true);
     }
 
     private function sanitizeUrlForLog(string $value): string
@@ -708,6 +862,62 @@ class ThumbhashService extends Component
         }
 
         return (bool)$plugin->getSettings()->pngStripMetadata;
+    }
+
+    /**
+     * Maximum transform fetch response size in bytes.
+     */
+    public function transformFetchMaxBytes(): int
+    {
+        $plugin = Plugin::getInstance();
+
+        if ($plugin === null) {
+            return 5 * 1024 * 1024;
+        }
+
+        return max(262144, (int)$plugin->getSettings()->transformFetchMaxBytes);
+    }
+
+    /**
+     * Total timeout in seconds for transform fetch requests.
+     */
+    public function transformFetchTimeout(): float
+    {
+        $plugin = Plugin::getInstance();
+
+        if ($plugin === null) {
+            return 20.0;
+        }
+
+        return max(1.0, (float)$plugin->getSettings()->transformFetchTimeout);
+    }
+
+    /**
+     * Connection timeout in seconds for transform fetch requests.
+     */
+    public function transformFetchConnectTimeout(): float
+    {
+        $plugin = Plugin::getInstance();
+
+        if ($plugin === null) {
+            return 5.0;
+        }
+
+        return max(0.5, (float)$plugin->getSettings()->transformFetchConnectTimeout);
+    }
+
+    /**
+     * Per-read timeout in seconds for streamed transform responses.
+     */
+    public function transformFetchReadTimeout(): float
+    {
+        $plugin = Plugin::getInstance();
+
+        if ($plugin === null) {
+            return 10.0;
+        }
+
+        return max(0.5, (float)$plugin->getSettings()->transformFetchReadTimeout);
     }
 
     /**
