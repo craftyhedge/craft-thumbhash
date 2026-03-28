@@ -27,6 +27,7 @@ use craftyhedge\craftthumbhash\twig\Extension;
 use craftyhedge\craftthumbhash\utilities\ThumbhashUtility;
 use Psr\Log\LogLevel;
 use yii\base\Event;
+use yii\base\InvalidConfigException;
 
 /**
  * @property ThumbhashService $thumbhash
@@ -298,7 +299,15 @@ class Plugin extends BasePlugin
             return true;
         }
 
-        $volume = $asset->getVolume();
+        try {
+            $volume = $asset->getVolume();
+        } catch (InvalidConfigException $e) {
+            Craft::warning(
+                sprintf('Skipping ThumbHash generation for asset %s: %s', (string)$asset->id, $e->getMessage()),
+                self::LOG_CATEGORY_HANDLE,
+            );
+            return false;
+        }
 
         return in_array($volume->handle, (array) $volumes, true);
     }
