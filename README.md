@@ -154,6 +154,24 @@ img.lazyload:not([src]) {
 | `thumbhashDataUrl(asset)` | Returns the thumbhash decoded as a PNG data URL, or `null` |
 | `thumbhashScript()` | Registers the client-side decoder asset bundle |
 
+### Control Panel
+
+For supported image assets, the plugin also surfaces ThumbHash data in the Craft control panel:
+
+- Asset details show a `ThumbHash` metadata field with the stored hash string.
+- Asset details show a `#PNG` metadata preview when a PNG data URL is available.
+- The Assets index gets a `#PNG` preview column by default when `generateDataUrl` is enabled.
+
+### Control Panel Utility
+
+The plugin also adds a `Utilities -> ThumbHash` screen for maintenance tasks:
+
+- Queue generation for missing or modified image assets.
+- Preview stored PNG placeholders across assets.
+- Clear all stored thumbhash records.
+
+<img width="620px" height="340px" src="assets/ThumbHash-panel.png" alt="ThumbHash control panel utility showing the PNG preview grid and generation tools" />
+
 ### JavaScript API
 
 The decoder exposes a global API for manual use:
