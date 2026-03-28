@@ -3,6 +3,12 @@
     "description": "Automatic ThumbHash placeholder generation for Craft CMS assets",
     "type": "craft-plugin",
     "license": "proprietary",
+    "authors": [
+        {
+            "name": "Crafty Hedge",
+            "homepage": "https://github.com/craftyhedge"
+        }
+    ],
     "require": {
         "php": "^8.2",
         "craftcms/cms": "^5.0.0",
