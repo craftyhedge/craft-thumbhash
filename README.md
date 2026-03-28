@@ -40,7 +40,7 @@ Photo by <a href="https://unsplash.com/@sanjeevan_s?utm_source=unsplash&utm_medi
 - The base64 hash string is around ~28 bytes, while the decoded PNG data URL is typically around ~0.8-2KB per image, depending on the image content and compression settings. Gzip/Brotli compression can further reduce the data URL size when served from your server.
 - In practice, the larger client-decoded PNG usually isn't a problem: the browser is decoding from an already-inlined hash string, there is no extra network request, and the decode itself happens extremely quickly.
 
-If your images are hosted externally and that services goes down for whatever reason, users will always get a placeholder.
+If your images are hosted externally and that service goes down for whatever reason, users will always get a placeholder.
 
 
 ## Requirements
