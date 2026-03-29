@@ -111,4 +111,17 @@ class Settings extends Model
      * Read timeout (seconds) for streamed transform responses.
      */
     public float $transformFetchReadTimeout = 10.0;
+
+    /**
+     * Maximum concurrent HTTP connections during batch prefetch.
+     */
+    public int $fetchConcurrency = 10;
+
+    public function defineRules(): array
+    {
+        $rules = parent::defineRules();
+        $rules[] = ['fetchConcurrency', 'integer', 'min' => 1, 'max' => 50];
+
+        return $rules;
+    }
 }

@@ -16,6 +16,7 @@ use craft\queue\BaseBatchedJob;
 use craft\queue\Queue as CraftQueue;
 use craftyhedge\craftthumbhash\db\Table as PluginTable;
 use craftyhedge\craftthumbhash\Plugin;
+use craftyhedge\craftthumbhash\services\ThumbhashService;
 use samdark\log\PsrMessage;
 use yii\db\Expression;
 use yii\log\Logger;
@@ -104,23 +105,103 @@ class GenerateThumbhashBatch extends BaseBatchedJob
 
         $this->beforeBatch();
 
-        $i = 0;
+        // Report current position immediately so continuation jobs don't
+        // show 0% while the first prefetch blocks on transform generation.
+        $this->reportProgress($queue);
+
+        $plugin = Plugin::getInstance();
+        if ($plugin === null) {
+            return;
+        }
+
+        $service = $plugin->thumbhash;
+        $generateDataUrl = $service->shouldGenerateDataUrl();
+        $concurrency = $service->fetchConcurrency();
+
+        // Batch-load existing thumbhash records for the entire slice
+        // to avoid N+1 queries during eligibility checks.
+        $assetIds = [];
+        foreach ($items as $item) {
+            if ($item instanceof Asset) {
+                $assetIds[] = (int)$item->id;
+            }
+        }
+        $preloadedRecords = $service->preloadRecordsForAssets($assetIds);
+
+        // Partition items into eligible and ineligible
+        /** @var Asset[] $eligible */
+        $eligible = [];
+        /** @var array<int, Asset|mixed> $ineligible */
+        $ineligible = [];
 
         foreach ($items as $item) {
-            $step = $this->itemOffset + 1;
-            $total = $this->totalItems();
-
-            if ($total > 0) {
-                $this->setProgress($queue, $step / $total, Translation::prep('app', '{step, number} of {total, number}', [
-                    'step' => $step,
-                    'total' => $total,
-                ]));
+            if ($this->isEligibleForGeneration($item, $plugin, $service, $generateDataUrl, $preloadedRecords)) {
+                $eligible[] = $item;
+            } else {
+                $ineligible[] = $item;
             }
+        }
 
-            $this->processItem($item);
+        $i = 0;
+
+        // Process ineligible items (advance offset + progress)
+        foreach ($ineligible as $item) {
             $this->itemOffset++;
             $i++;
+            $this->reportProgress($queue);
+        }
 
+        // Process eligible items in chunks via concurrent prefetch
+        $chunks = array_chunk($eligible, $concurrency);
+
+        foreach ($chunks as $chunk) {
+            // Report progress before prefetch so the queue UI stays current
+            // while transforms are being generated (can block for seconds).
+            $this->reportProgress($queue);
+
+            $prefetched = [];
+            try {
+                $prefetched = $service->prefetchTransforms($chunk);
+
+                foreach ($chunk as $asset) {
+                    $assetId = (int)$asset->id;
+                    $fetchResult = $prefetched[$assetId] ?? null;
+
+                    if ($fetchResult !== null) {
+                        $result = $service->generateHashPayloadFromFetchedFile(
+                            $asset,
+                            $fetchResult['path'],
+                            $generateDataUrl,
+                        );
+
+                        $generated = $result['payload'];
+
+                        if ($generated !== null) {
+                            $this->generated++;
+                            $service->saveHashForAsset($asset, $generated['hash'], $generated['dataUrl']);
+                        } else {
+                            $this->failed++;
+                            $this->markUtilityRunFailed();
+                        }
+                    } else {
+                        $this->failed++;
+                        $this->markUtilityRunFailed();
+                    }
+
+                    $this->itemOffset++;
+                    $i++;
+                    $this->reportProgress($queue);
+                }
+            } finally {
+                foreach ($prefetched as $fetchResult) {
+                    $tempPath = $fetchResult['path'] ?? null;
+                    if ($tempPath !== null && file_exists($tempPath)) {
+                        @unlink($tempPath);
+                    }
+                }
+            }
+
+            // Memory guard between chunks
             if ($startMemory !== null) {
                 $memory = memory_get_usage();
                 $avgMemory = ($memory - $startMemory) / $i;
@@ -129,12 +210,14 @@ class GenerateThumbhashBatch extends BaseBatchedJob
                 }
             }
 
+            // TTR guard between chunks
             $runningTime = microtime(true) - $start;
             $avgRunningTime = $runningTime / $i;
             if ($this->ttr !== null && $runningTime + ($avgRunningTime * 2) > $this->ttr) {
                 break;
             }
 
+            // Queue reservation check
             if ($queue instanceof CraftQueue && !$queue->isReserved($queue->getJobId())) {
                 return;
             }
@@ -209,6 +292,60 @@ class GenerateThumbhashBatch extends BaseBatchedJob
     protected function defaultDescription(): ?string
     {
         return 'ThumbHash: Batch generating image placeholders';
+    }
+
+    /**
+     * Check whether an item is an eligible asset for hash generation.
+     *
+     * Used by execute() to partition items before chunked prefetch.
+     *
+     * Returns true only when the asset needs a new/updated hash.
+     * Side-effects: increments $this->scanned, $this->skippedCurrent as appropriate.
+     */
+    /**
+     * @param array<int, \craftyhedge\craftthumbhash\records\ThumbhashRecord> $preloadedRecords
+     */
+    private function isEligibleForGeneration(
+        mixed $item,
+        Plugin $plugin,
+        ThumbhashService $service,
+        bool $generateDataUrl,
+        array $preloadedRecords = [],
+    ): bool {
+        $this->scanned++;
+
+        if (!$item instanceof Asset) {
+            return false;
+        }
+
+        if (strtolower($item->getExtension()) === 'svg') {
+            return false;
+        }
+
+        if (!$plugin->isAssetAllowed($item)) {
+            return false;
+        }
+
+        $record = $preloadedRecords[(int)$item->id] ?? null;
+        if ($service->isAssetCurrentWithRecord($item, $record, $generateDataUrl)) {
+            $this->skippedCurrent++;
+            return false;
+        }
+
+        return true;
+    }
+
+    private function reportProgress(mixed $queue): void
+    {
+        $step = $this->itemOffset;
+        $total = $this->totalItems();
+
+        if ($total > 0) {
+            $this->setProgress($queue, $step / $total, Translation::prep('app', '{step, number} of {total, number}', [
+                'step' => $step,
+                'total' => $total,
+            ]));
+        }
     }
 
     private function logEvent(string $level, string $event, array $context = []): void

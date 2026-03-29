@@ -326,13 +326,23 @@ return [
 ```
 Now ThumbHash and all you CP images will use the Imgix source for transforms.
 
+## Transform Concurrency
+
+When generating thumbhashes for large batches of assets, the plugin needs to fetch many transformed images. The `fetchConcurrency` setting controls how many HTTP requests it will make in parallel during this prefetch step.
+
+This is where a transform service like Imigix that allows concurrent requests really shines. With a high `fetchConcurrency` (e.g. 10), you can fetch many transforms at once and keep the generation process moving quickly. With a lower concurrency (e.g. 3-5), you can avoid overwhelming your server if you are using local transforms.
+
+The difference with Imgix and 10 concurrent fetches on 100s or 1000s of assets can be dramatic.
+
+Will all this praise of external transform services, it's worth noting that the default Craft transform generation still works just fine with this plugin. It just won't be as fast for large batches of assets like when you first backfill existing assets.
+
+If you are developing and need to clear the stored thumbhashes for whatever reason, the transforms will be reused on the next generation run, so subsequent runs will be much faster after the initial generation.
+
 ## Performance Considerations
 
 - ThumbHash generation is performed asynchronously in a queue job to avoid blocking the request thread.
 - If `autoGenerate` is enabled, uploading or replacing an image asset will trigger a new hash generation job for that asset.
-- When uploading large numbers of assets at once Craft limits uploads to small batches so you only ever get a few hash generation jobs queued at once.
-- The actual generation work to hash the transformed image is typically quite fast but the real bottleneck is the image transform step, especially if you are using the default server-side transforms. Using an external transform service can significantly reduce generation time and improve overall performance.
-- Reprocessing unchanged assets will reuse existing transforms, so subsequent runs are typically much faster after the initial batch.
+- When uploading large numbers of assets, Craft processes them in small batches only triggering a few hash generation jobs at any one time.
 
 ## Backfilling Existing Assets
 

@@ -8,6 +8,7 @@ use craft\db\Table as CraftTable;
 use craft\elements\Asset;
 use craft\helpers\Db;
 use craft\helpers\UrlHelper;
+use GuzzleHttp\Pool;
 use Psr\Http\Message\ResponseInterface;
 use samdark\log\PsrMessage;
 use Thumbhash\Thumbhash;
@@ -934,6 +935,15 @@ class ThumbhashService extends Component
 
         $record = ThumbhashRecord::findOne(['assetId' => $asset->id]);
 
+        return $this->isAssetCurrentWithRecord($asset, $record, $requireDataUrl);
+    }
+
+    /**
+     * Returns true when an asset already has a current hash record,
+     * using a preloaded record to avoid a per-asset DB query.
+     */
+    public function isAssetCurrentWithRecord(Asset $asset, ?ThumbhashRecord $record, bool $requireDataUrl): bool
+    {
         if (!$record || !$record->hash) {
             return false;
         }
@@ -957,6 +967,24 @@ class ThumbhashService extends Component
             && $recordSize === $sourceSize
             && $recordWidth === $sourceWidth
             && $recordHeight === $sourceHeight;
+    }
+
+    /**
+     * Batch-load thumbhash records for a set of asset IDs in a single query.
+     *
+     * @param int[] $assetIds
+     * @return array<int, ThumbhashRecord> Keyed by asset ID
+     */
+    public function preloadRecordsForAssets(array $assetIds): array
+    {
+        if ($assetIds === []) {
+            return [];
+        }
+
+        return ThumbhashRecord::find()
+            ->where(['assetId' => $assetIds])
+            ->indexBy('assetId')
+            ->all();
     }
 
     /**
@@ -1697,5 +1725,331 @@ class ThumbhashService extends Component
         }
 
         return null;
+    }
+
+    /**
+     * Maximum concurrent HTTP connections during batch prefetch.
+     */
+    public function fetchConcurrency(): int
+    {
+        $plugin = Plugin::getInstance();
+
+        if ($plugin === null) {
+            return 10;
+        }
+
+        return max(1, min(50, (int)$plugin->getSettings()->fetchConcurrency));
+    }
+
+    /**
+     * Prefetch transform images for a batch of assets concurrently.
+     *
+     * Returns a map keyed by asset ID. Each entry is either an array with
+     * `path` (temp file) and `url` (normalized URL), or null if the fetch failed.
+     *
+     * @param Asset[] $assets
+     * @return array<int, array{path: string, url: string}|null>
+     */
+    public function prefetchTransforms(array $assets): array
+    {
+        $transform = $this->getSourceTransformDefinition();
+        $maxBytes = $this->transformFetchMaxBytes();
+        $concurrency = $this->fetchConcurrency();
+        $results = [];
+
+        /** @var array<int, array{url: string, tempPath: string}> $httpAssets */
+        $httpAssets = [];
+
+        foreach ($assets as $asset) {
+            $assetId = (int)$asset->id;
+
+            $transformStartedAt = microtime(true);
+            $rawUrl = $asset->getUrl($transform, true);
+            $transformMs = $this->durationMs($transformStartedAt);
+
+            $this->logEvent('debug', 'thumbhash.pipeline.timing.transform_url', [
+                'assetId' => $assetId,
+                'durationMs' => $transformMs,
+            ]);
+
+            if (!$rawUrl) {
+                $this->logEvent('info', 'thumbhash.prefetch.skip', [
+                    'assetId' => $assetId,
+                    'reason' => 'transform_url_unavailable',
+                ]);
+                $results[$assetId] = null;
+                continue;
+            }
+
+            $normalizedUrl = $this->normalizeTransformUrl($rawUrl);
+
+            if (!$normalizedUrl) {
+                $this->logEvent('info', 'thumbhash.prefetch.skip', [
+                    'assetId' => $assetId,
+                    'reason' => 'normalize_failed',
+                ]);
+                $results[$assetId] = null;
+                continue;
+            }
+
+            $tempPath = tempnam(sys_get_temp_dir(), 'thumbhash_pf_');
+            if (!$tempPath) {
+                $this->logEvent('error', 'thumbhash.prefetch.skip', [
+                    'assetId' => $assetId,
+                    'reason' => 'temp_file_unavailable',
+                ]);
+                $results[$assetId] = null;
+                continue;
+            }
+
+            $isHttp = preg_match('/^https?:\/\//i', $normalizedUrl);
+
+            if (!$isHttp) {
+                // Local path — copy directly
+                $fetched = $this->fetchTransformToPath($normalizedUrl, $tempPath, $assetId);
+                if ($fetched) {
+                    $results[$assetId] = ['path' => $tempPath, 'url' => $normalizedUrl];
+                } else {
+                    if (file_exists($tempPath)) {
+                        @unlink($tempPath);
+                    }
+                    $results[$assetId] = null;
+                }
+                continue;
+            }
+
+            $httpAssets[$assetId] = ['url' => $normalizedUrl, 'tempPath' => $tempPath];
+        }
+
+        if ($httpAssets === []) {
+            return $results;
+        }
+
+        $client = Craft::createGuzzleClient([
+            'timeout' => $this->transformFetchTimeout(),
+            'connect_timeout' => $this->transformFetchConnectTimeout(),
+            'read_timeout' => $this->transformFetchReadTimeout(),
+            'http_errors' => false,
+            'allow_redirects' => false,
+        ]);
+
+        $requests = function () use ($client, $httpAssets, $maxBytes) {
+            foreach ($httpAssets as $assetId => ['url' => $url, 'tempPath' => $tempPath]) {
+                $sanitizedUrl = $this->sanitizeUrlForLog($url);
+
+                $this->logEvent('debug', 'thumbhash.transform.fetch.start', [
+                    'assetId' => $assetId,
+                    'url' => $sanitizedUrl,
+                ]);
+
+                yield $assetId => function () use ($client, $url, $tempPath, $maxBytes) {
+                    return $client->getAsync($url, [
+                        'sink' => $tempPath,
+                        'on_headers' => function (ResponseInterface $response) use ($maxBytes): void {
+                            $contentLength = trim($response->getHeaderLine('Content-Length'));
+                            if ($contentLength !== '' && is_numeric($contentLength) && (int)$contentLength > $maxBytes) {
+                                throw new \RuntimeException('response_too_large');
+                            }
+
+                            $contentType = $response->getHeaderLine('Content-Type');
+                            if (!$this->isSupportedTransformContentType($contentType)) {
+                                throw new \RuntimeException('unsupported_content_type');
+                            }
+                        },
+                        'progress' => function (
+                            $downloadTotal,
+                            $downloaded,
+                            $uploadTotal,
+                            $uploaded,
+                        ) use ($maxBytes): void {
+                            if ((int)$downloaded > $maxBytes) {
+                                throw new \RuntimeException('response_too_large');
+                            }
+                        },
+                    ]);
+                };
+            }
+        };
+
+        $fetchStartedAt = microtime(true);
+
+        $pool = new Pool($client, $requests(), [
+            'concurrency' => $concurrency,
+            'fulfilled' => function (ResponseInterface $response, int $assetId) use ($httpAssets, $maxBytes, &$results): void {
+                $tempPath = $httpAssets[$assetId]['tempPath'];
+                $url = $httpAssets[$assetId]['url'];
+                $sanitizedUrl = $this->sanitizeUrlForLog($url);
+                $statusCode = $response->getStatusCode();
+
+                if ($statusCode < 200 || $statusCode >= 300) {
+                    $this->logEvent('info', 'thumbhash.transform.fetch.result', [
+                        'assetId' => $assetId,
+                        'url' => $sanitizedUrl,
+                        'reason' => 'http_non_2xx',
+                        'statusCode' => $statusCode,
+                    ]);
+                    if (file_exists($tempPath)) {
+                        @unlink($tempPath);
+                    }
+                    $results[$assetId] = null;
+                    return;
+                }
+
+                $bytes = @filesize($tempPath);
+                if (!is_int($bytes) || $bytes <= 0) {
+                    $this->logEvent('info', 'thumbhash.transform.fetch.result', [
+                        'assetId' => $assetId,
+                        'url' => $sanitizedUrl,
+                        'reason' => 'empty_body',
+                        'statusCode' => $statusCode,
+                        'bytes' => 0,
+                    ]);
+                    if (file_exists($tempPath)) {
+                        @unlink($tempPath);
+                    }
+                    $results[$assetId] = null;
+                    return;
+                }
+
+                if ($bytes > $maxBytes) {
+                    $this->logEvent('info', 'thumbhash.transform.fetch.result', [
+                        'assetId' => $assetId,
+                        'url' => $sanitizedUrl,
+                        'reason' => 'response_too_large',
+                        'statusCode' => $statusCode,
+                        'bytes' => $bytes,
+                        'maxBytes' => $maxBytes,
+                    ]);
+                    if (file_exists($tempPath)) {
+                        @unlink($tempPath);
+                    }
+                    $results[$assetId] = null;
+                    return;
+                }
+
+                $this->logEvent('debug', 'thumbhash.transform.fetch.result', [
+                    'assetId' => $assetId,
+                    'url' => $sanitizedUrl,
+                    'reason' => 'ok',
+                    'statusCode' => $statusCode,
+                    'bytes' => $bytes,
+                ]);
+
+                $results[$assetId] = ['path' => $tempPath, 'url' => $url];
+            },
+            'rejected' => function (mixed $reason, int $assetId) use ($httpAssets, &$results): void {
+                $tempPath = $httpAssets[$assetId]['tempPath'];
+                $url = $httpAssets[$assetId]['url'];
+                $sanitizedUrl = $this->sanitizeUrlForLog($url);
+
+                if ($reason instanceof \Throwable) {
+                    $failureReason = $this->transformFetchFailureReason($reason);
+                    $exceptionType = $reason::class;
+                } else {
+                    $failureReason = 'unknown';
+                    $exceptionType = get_debug_type($reason);
+                }
+
+                $this->logEvent('warning', 'thumbhash.transform.fetch.result', [
+                    'assetId' => $assetId,
+                    'url' => $sanitizedUrl,
+                    'reason' => $failureReason,
+                    'exceptionType' => $exceptionType,
+                ]);
+
+                if (file_exists($tempPath)) {
+                    @unlink($tempPath);
+                }
+                $results[$assetId] = null;
+            },
+        ]);
+
+        try {
+            $pool->promise()->wait();
+        } catch (\Throwable $e) {
+            // Clean up temp files for HTTP assets not yet settled via callbacks.
+            foreach ($httpAssets as $assetId => $info) {
+                if (!isset($results[$assetId]) && file_exists($info['tempPath'])) {
+                    @unlink($info['tempPath']);
+                }
+            }
+            throw $e;
+        }
+
+        $fetchMs = $this->durationMs($fetchStartedAt);
+
+        $this->logEvent('debug', 'thumbhash.prefetch.complete', [
+            'httpCount' => count($httpAssets),
+            'concurrency' => $concurrency,
+            'durationMs' => $fetchMs,
+        ]);
+
+        return $results;
+    }
+
+    /**
+     * Generate hash payload from an already-downloaded file.
+     *
+     * @return array{status: string, reason: string|null, payload: array{hash: string, dataUrl: ?string}|null}
+     */
+    public function generateHashPayloadFromFetchedFile(
+        Asset $asset,
+        string $fetchedPath,
+        bool $generateDataUrl,
+    ): array {
+        $assetId = (int)$asset->id;
+        $pipelineStartedAt = microtime(true);
+
+        try {
+            $processStartedAt = microtime(true);
+            $payload = $this->generateHashPayloadFromPath($fetchedPath, $generateDataUrl);
+            $processMs = $this->durationMs($processStartedAt);
+
+            if ($payload === null) {
+                $this->logEvent('warning', 'thumbhash.generate.failure', [
+                    'assetId' => $assetId,
+                    'generateDataUrl' => $generateDataUrl,
+                    'reason' => 'extract_failed',
+                ]);
+
+                return [
+                    'status' => self::PAYLOAD_STATUS_FAILED,
+                    'reason' => 'extract_failed',
+                    'payload' => null,
+                ];
+            }
+
+            $pipelineMs = $this->durationMs($pipelineStartedAt);
+
+            $this->logEvent('debug', 'thumbhash.pipeline.timing.total', [
+                'assetId' => $assetId,
+                'processMs' => $processMs,
+                'totalMs' => $pipelineMs,
+            ]);
+
+            $this->logEvent('debug', 'thumbhash.generate.success', [
+                'assetId' => $assetId,
+                'generateDataUrl' => $generateDataUrl,
+            ]);
+
+            return [
+                'status' => self::PAYLOAD_STATUS_READY,
+                'reason' => null,
+                'payload' => $payload,
+            ];
+        } catch (\Throwable $e) {
+            $this->logEvent('warning', 'thumbhash.generate.failure', [
+                'assetId' => $assetId,
+                'generateDataUrl' => $generateDataUrl,
+                'reason' => 'process_exception',
+                'exceptionType' => $e::class,
+            ]);
+
+            return [
+                'status' => self::PAYLOAD_STATUS_FAILED,
+                'reason' => 'process_exception',
+                'payload' => null,
+            ];
+        }
     }
 }

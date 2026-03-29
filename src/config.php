@@ -97,4 +97,10 @@ return [
     // Per-read timeout in seconds for streamed transform responses.
     // Default: 10.0
     // 'transformFetchReadTimeout' => 10.0,
+
+    // Maximum concurrent HTTP connections during batch prefetch.
+    // Users on local (non-CDN) transforms may benefit from a lower value (3–5)
+    // to avoid overwhelming Imagick with simultaneous transform generation.
+    // Default: 10
+    // 'fetchConcurrency' => 10,
 ];
