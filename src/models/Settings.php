@@ -83,11 +83,6 @@ class Settings extends Model
     ];
 
     /**
-     * Whether the frontend decoder script should be loaded with the defer attribute.
-     */
-    public bool $deferDecoderScript = false;
-
-    /**
      * Whether to include debug-level plugin logs in dev mode.
      */
     public bool $logDebug = false;

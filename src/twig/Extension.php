@@ -6,7 +6,6 @@ use Craft;
 use craft\elements\Asset;
 use craft\web\View;
 use craftyhedge\craftthumbhash\Plugin;
-use craftyhedge\craftthumbhash\web\assets\ThumbhashBundle;
 use Twig\Extension\AbstractExtension;
 use Twig\TwigFunction;
 use yii\helpers\Json;
@@ -49,18 +48,22 @@ class Extension extends AbstractExtension
     }
 
     /**
-     * Registers the client-side ThumbHash decoder asset bundle.
+     * Registers the client-side ThumbHash decoder as inline JS.
      */
     public function getThumbhashScript(): string
     {
         $settings = Plugin::getInstance()->getSettings();
+        $view = Craft::$app->getView();
 
-        Craft::$app->getView()->registerJs(
+        $view->registerJs(
             'window.thumbhashConfig = window.thumbhashConfig || {}; window.thumbhashConfig.backgroundPlaceholderStyles = ' . Json::htmlEncode((array)$settings->backgroundPlaceholderStyles) . ';',
             View::POS_HEAD,
         );
 
-        Craft::$app->getView()->registerAssetBundle(ThumbhashBundle::class);
+        $scriptPath = dirname(__DIR__) . '/web/assets/dist/th-decoder.min.js';
+        $scriptContents = file_get_contents($scriptPath);
+
+        $view->registerJs($scriptContents, View::POS_HEAD);
 
         return '';
     }

@@ -85,12 +85,10 @@ php craft plugin/install thumbhash
 ### Twig Templates
 
 The decoder script will decode each hash to a tiny PNG data URL and set it as the `src` on the element.
-For the earliest possible placeholder paint, keep the decoder script registered in the `<head>` and leave the default setting `deferDecoderScript` set to `false` so the decoder can run as soon as possible.
-
-This is a deliberate tradeoff, not a blanket performance rule. A non-deferred script in the `<head>` can add some parser-blocking work, but it also allows placeholders to appear sooner. If you would rather minimize the impact of a head script and can accept placeholders appearing a little later, set `deferDecoderScript` to `true`.
+The script is inlined directly into the `<head>` (no extra HTTP request) for the earliest possible placeholder paint. It is small enough (~12 KB unminified) that parser-blocking cost is negligible, and placing it in the `<head>` lets the MutationObserver start before any `<body>` elements are parsed — so placeholders appear as the DOM is built rather than after.
 
 ```twig
-{# Register the decoder asset (safe to call; Craft includes it once per page) #}
+{# Register the inline decoder script (safe to call; Craft includes it once per page) #}
 {{ thumbhashScript() }}
 ```
 
@@ -175,7 +173,7 @@ img.lazyload:not([src]) {
 |---|---|
 | `thumbhash(asset)` | Returns the base64 thumbhash string for an asset, or `null` |
 | `thumbhashDataUrl(asset)` | Returns the thumbhash decoded as a PNG data URL, or `null` |
-| `thumbhashScript()` | Registers the client-side decoder asset bundle |
+| `thumbhashScript()` | Registers the client-side decoder (inlined in `<head>`) |
 
 ### Control Panel
 
@@ -290,11 +288,6 @@ return [
     //     'backgroundSize' => 'cover',
     //     'backgroundPosition' => 'center',
     // ],
-
-    // Load the frontend ThumbHash decoder script with the defer attribute.
-    // Set to false to keep the script non-deferred.
-    // Default: false
-    // 'deferDecoderScript' => false,
 
     // Include debug-level plugin logs when dev mode is enabled.
     // Default: false
