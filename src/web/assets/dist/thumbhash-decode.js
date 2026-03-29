@@ -289,14 +289,6 @@
         }
     }
 
-    // ---- Init: process all current elements ----
-    function initAll() {
-        var elements = document.querySelectorAll('[data-thumbhash]:not([data-thumbhash-processed]), [data-thumbhash-bg]:not([data-thumbhash-processed])');
-        for (var i = 0; i < elements.length; i++) {
-            processElement(elements[i]);
-        }
-    }
-
     // ---- MutationObserver for dynamically added elements ----
     function observeDOM() {
         if (!('MutationObserver' in window)) return;
