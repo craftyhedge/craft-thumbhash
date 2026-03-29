@@ -6,6 +6,8 @@ use Craft;
 use craft\base\Element;
 use craft\base\Model;
 use craft\base\Plugin as BasePlugin;
+use craft\db\Query;
+use craft\db\Table as CraftTable;
 use craft\elements\Asset;
 use craft\events\DefineAttributeHtmlEvent;
 use craft\events\DefineMetadataEvent;
@@ -15,6 +17,7 @@ use craft\events\RegisterElementTableAttributesEvent;
 use craft\events\RegisterComponentTypesEvent;
 use craft\events\ReplaceAssetEvent;
 use craft\helpers\App;
+use craft\helpers\Db;
 use craft\helpers\Html;
 use craft\log\MonologTarget;
 use craft\services\Assets;
@@ -296,13 +299,26 @@ class Plugin extends BasePlugin
             return;
         }
 
-        if (!$this->isVolumeAllowed($asset)) {
+        if (!$this->isAssetAllowed($asset)) {
             return;
         }
 
         Craft::$app->getQueue()->push(new GenerateThumbhash([
             'assetId' => $asset->id,
         ]));
+    }
+
+    public function isAssetAllowed(Asset $asset): bool
+    {
+        if (!$this->isVolumeAllowed($asset)) {
+            return false;
+        }
+
+        if (!$this->isAssetIncludedByRules($asset)) {
+            return false;
+        }
+
+        return !$this->isAssetIgnoredByRules($asset);
     }
 
     public function isVolumeAllowed(Asset $asset): bool
@@ -326,6 +342,392 @@ class Plugin extends BasePlugin
         }
 
         return in_array($volume->handle, (array) $volumes, true);
+    }
+
+    public function isAssetIgnoredByRules(Asset $asset): bool
+    {
+        $rulesByScope = $this->normalizedIgnoreRulesByScope();
+
+        if ($rulesByScope === []) {
+            return false;
+        }
+
+        $patterns = $this->patternsForAssetScope($asset, $rulesByScope, 'ignore-rule');
+
+        if ($patterns === []) {
+            return false;
+        }
+
+        if (!$asset->id) {
+            return false;
+        }
+
+        return Asset::find()
+            ->status(null)
+            ->site('*')
+            ->unique(true)
+            ->id((int)$asset->id)
+            ->folderPath($patterns)
+            ->exists();
+    }
+
+    public function isAssetIncludedByRules(Asset $asset): bool
+    {
+        $rulesByScope = $this->normalizedIncludeRulesByScope();
+
+        if ($rulesByScope === []) {
+            return true;
+        }
+
+        $patterns = $this->patternsForAssetScope($asset, $rulesByScope, 'include-rule');
+
+        // Include rules are opt-in per scope. If a scope has no include patterns,
+        // assets in that scope remain eligible.
+        if ($patterns === []) {
+            return true;
+        }
+
+        if (!$asset->id) {
+            return false;
+        }
+
+        return Asset::find()
+            ->status(null)
+            ->site('*')
+            ->unique(true)
+            ->id((int)$asset->id)
+            ->folderPath($patterns)
+            ->exists();
+    }
+
+    public function applyFolderRulesToQuery(
+        Query $query,
+        string $folderPathColumn = 'volumeFolders.path',
+        ?string $volumeHandleColumn = 'volumes.handle',
+        ?string $volumeIdColumn = null,
+    ): void {
+        $this->applyIncludeRulesToQuery(
+            $query,
+            $folderPathColumn,
+            $volumeHandleColumn,
+            $volumeIdColumn,
+        );
+
+        $this->applyIgnoreRulesToQuery(
+            $query,
+            $folderPathColumn,
+            $volumeHandleColumn,
+            $volumeIdColumn,
+        );
+    }
+
+    public function applyIncludeRulesToQuery(
+        Query $query,
+        string $folderPathColumn = 'volumeFolders.path',
+        ?string $volumeHandleColumn = 'volumes.handle',
+        ?string $volumeIdColumn = null,
+    ): void {
+        $rulesByScope = $this->normalizedIncludeRulesByScope();
+
+        if ($rulesByScope === []) {
+            return;
+        }
+
+        $globalPatterns = $rulesByScope['*'] ?? [];
+        unset($rulesByScope['*']);
+
+        $scopedRules = $rulesByScope;
+
+        $scopedVolumeIdsByHandle = [];
+        if ($volumeHandleColumn === null && $volumeIdColumn !== null && $scopedRules !== []) {
+            $scopedVolumeIdsByHandle = $this->resolveVolumeIdsByHandle(array_keys($scopedRules));
+        }
+
+        $allowConditions = ['or'];
+
+        foreach ($globalPatterns as $pattern) {
+            $allowConditions[] = Db::parseParam($folderPathColumn, $pattern);
+        }
+
+        foreach ($scopedRules as $scope => $patterns) {
+            foreach ($patterns as $pattern) {
+                $pathCondition = Db::parseParam($folderPathColumn, $pattern);
+
+                if ($volumeHandleColumn !== null) {
+                    $allowConditions[] = [
+                        'and',
+                        [$volumeHandleColumn => $scope],
+                        $pathCondition,
+                    ];
+                    continue;
+                }
+
+                if ($volumeIdColumn !== null && isset($scopedVolumeIdsByHandle[$scope])) {
+                    $allowConditions[] = [
+                        'and',
+                        [$volumeIdColumn => $scopedVolumeIdsByHandle[$scope]],
+                        $pathCondition,
+                    ];
+                }
+            }
+        }
+
+        // If there are no global include rules, only scoped volumes are constrained.
+        // Other volumes remain eligible.
+        if ($globalPatterns === []) {
+            if ($volumeHandleColumn !== null) {
+                $scopedHandles = array_keys($scopedRules);
+                if ($scopedHandles !== []) {
+                    $allowConditions[] = ['not', [$volumeHandleColumn => $scopedHandles]];
+                }
+            } elseif ($volumeIdColumn !== null && $scopedVolumeIdsByHandle !== []) {
+                $scopedVolumeIds = array_values(array_unique(array_map(
+                    static fn(int $id): int => (int)$id,
+                    $scopedVolumeIdsByHandle,
+                )));
+
+                if ($scopedVolumeIds !== []) {
+                    $allowConditions[] = ['not', [$volumeIdColumn => $scopedVolumeIds]];
+                }
+            }
+        }
+
+        if (count($allowConditions) > 1) {
+            $query->andWhere($allowConditions);
+        }
+    }
+
+    public function applyIgnoreRulesToQuery(
+        Query $query,
+        string $folderPathColumn = 'volumeFolders.path',
+        ?string $volumeHandleColumn = 'volumes.handle',
+        ?string $volumeIdColumn = null,
+    ): void {
+        $rulesByScope = $this->normalizedIgnoreRulesByScope();
+
+        if ($rulesByScope === []) {
+            return;
+        }
+
+        $volumeIdsByHandle = [];
+        if ($volumeHandleColumn === null && $volumeIdColumn !== null) {
+            $volumeIdsByHandle = $this->resolveVolumeIdsByHandle(array_keys($rulesByScope));
+        }
+
+        $ignoredConditions = ['or'];
+
+        foreach ($rulesByScope as $scope => $patterns) {
+            foreach ($patterns as $pattern) {
+                $pathCondition = Db::parseParam($folderPathColumn, $pattern);
+
+                if ($scope === '*') {
+                    $ignoredConditions[] = $pathCondition;
+                    continue;
+                }
+
+                if ($volumeHandleColumn !== null) {
+                    $ignoredConditions[] = [
+                        'and',
+                        [$volumeHandleColumn => $scope],
+                        $pathCondition,
+                    ];
+                    continue;
+                }
+
+                if ($volumeIdColumn !== null && isset($volumeIdsByHandle[$scope])) {
+                    $ignoredConditions[] = [
+                        'and',
+                        [$volumeIdColumn => $volumeIdsByHandle[$scope]],
+                        $pathCondition,
+                    ];
+                }
+            }
+        }
+
+        if (count($ignoredConditions) > 1) {
+            $query->andWhere(['not', $ignoredConditions]);
+        }
+    }
+
+    /**
+     * @return array<string, array<int, string>>
+     */
+    private function normalizedIncludeRulesByScope(): array
+    {
+        /** @var Settings $settings */
+        $settings = $this->getSettings();
+
+        return $this->normalizedRulesByScope($settings->includeRules);
+    }
+
+    /**
+     * @return array<string, array<int, string>>
+     */
+    private function normalizedIgnoreRulesByScope(): array
+    {
+        /** @var Settings $settings */
+        $settings = $this->getSettings();
+
+        return $this->normalizedRulesByScope($settings->ignoreRules);
+    }
+
+    /**
+     * @param array<string, mixed> $rawRules
+     * @return array<string, array<int, string>>
+     */
+    private function normalizedRulesByScope(array $rawRules): array
+    {
+        $normalized = [];
+
+        foreach ($rawRules as $scope => $rawPatterns) {
+            $normalizedScope = $this->normalizeIgnoreScope($scope);
+            if ($normalizedScope === null) {
+                continue;
+            }
+
+            $patterns = is_string($rawPatterns)
+                ? [$rawPatterns]
+                : (is_array($rawPatterns) ? $rawPatterns : []);
+
+            foreach ($patterns as $rawPattern) {
+                if (!is_string($rawPattern)) {
+                    continue;
+                }
+
+                $normalizedPattern = $this->normalizeIgnorePattern($rawPattern);
+                if ($normalizedPattern === null) {
+                    continue;
+                }
+
+                $normalized[$normalizedScope][] = $normalizedPattern;
+            }
+        }
+
+        foreach ($normalized as $scope => $patterns) {
+            $unique = array_values(array_unique($patterns));
+
+            if ($unique === []) {
+                unset($normalized[$scope]);
+                continue;
+            }
+
+            $normalized[$scope] = $unique;
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @param array<string, array<int, string>> $rulesByScope
+     * @return array<int, string>
+     */
+    private function patternsForAssetScope(Asset $asset, array $rulesByScope, string $ruleType): array
+    {
+        try {
+            $volumeHandle = strtolower($asset->getVolume()->handle);
+        } catch (InvalidConfigException $e) {
+            Craft::warning(
+                sprintf('Skipping ThumbHash %s check for asset %s: %s', $ruleType, (string)$asset->id, $e->getMessage()),
+                self::LOG_CATEGORY_HANDLE,
+            );
+
+            return [];
+        }
+
+        $patterns = $rulesByScope['*'] ?? [];
+
+        if (isset($rulesByScope[$volumeHandle])) {
+            $patterns = [...$patterns, ...$rulesByScope[$volumeHandle]];
+        }
+
+        return array_values(array_unique($patterns));
+    }
+
+    private function normalizeIgnoreScope(string|int $scope): ?string
+    {
+        if (is_int($scope)) {
+            return '*';
+        }
+
+        $normalized = trim($scope);
+        if ($normalized === '') {
+            return null;
+        }
+
+        if ($normalized === '*') {
+            return '*';
+        }
+
+        return strtolower($normalized);
+    }
+
+    private function normalizeIgnorePattern(string $pattern): ?string
+    {
+        $normalized = trim(str_replace('\\', '/', $pattern));
+        if ($normalized === '') {
+            return null;
+        }
+
+        $normalized = ltrim(preg_replace('#/+#', '/', $normalized) ?? $normalized, '/');
+        if ($normalized === '') {
+            return null;
+        }
+
+        if ($normalized === '*') {
+            return '*';
+        }
+
+        if (!str_contains($normalized, '*')) {
+            $prefix = rtrim($normalized, '/');
+            return $prefix === '' ? '*' : "$prefix/*";
+        }
+
+        if (str_ends_with($normalized, '/')) {
+            return $normalized . '*';
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @param array<int, string> $scopes
+     * @return array<string, int>
+     */
+    private function resolveVolumeIdsByHandle(array $scopes): array
+    {
+        $handles = array_values(array_unique(array_filter(
+            array_map(
+                static fn(string $scope): string => trim(strtolower($scope)),
+                $scopes,
+            ),
+            static fn(string $scope): bool => $scope !== '' && $scope !== '*',
+        )));
+
+        if ($handles === []) {
+            return [];
+        }
+
+        $rows = (new Query())
+            ->select(['id', 'handle'])
+            ->from([CraftTable::VOLUMES])
+            ->where(Db::parseParam('handle', $handles))
+            ->andWhere(['dateDeleted' => null])
+            ->all();
+
+        $map = [];
+
+        foreach ($rows as $row) {
+            $id = $row['id'] ?? null;
+            $handle = $row['handle'] ?? null;
+
+            if (!is_numeric($id) || !is_string($handle) || trim($handle) === '') {
+                continue;
+            }
+
+            $map[strtolower($handle)] = (int)$id;
+        }
+
+        return $map;
     }
 
     private function shouldAutoGenerateOnAssetEvents(): bool

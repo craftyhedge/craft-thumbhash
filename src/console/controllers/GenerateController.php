@@ -59,6 +59,16 @@ class GenerateController extends Controller
             }
         }
 
+        $plugin = Plugin::getInstance();
+        if ($plugin !== null) {
+            $plugin->applyFolderRulesToQuery(
+                $query,
+                folderPathColumn: 'volumeFolders.path',
+                volumeHandleColumn: null,
+                volumeIdColumn: 'assets.volumeId',
+            );
+        }
+
         $total = $query->count();
 
         if ($total === 0) {

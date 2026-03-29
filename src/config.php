@@ -12,6 +12,25 @@ return [
     // 'volumes' => '*',
     // 'volumes' => ['images', 'hero'],
 
+    // Include folder path rules keyed by scope.
+    // Use '*' for global rules, or a volume handle for volume-specific rules.
+    // Rule values support '*' wildcards and are matched against asset folder paths.
+    // Volumes without include rules stay eligible unless '*' is configured.
+    // Values without '*' are treated as folder prefixes (for example: 'products' => 'products/*').
+    // 'includeRules' => [
+    //     'images' => ['products/*', 'hero/*'],
+    // ],
+
+    // Ignore folder path rules keyed by scope.
+    // Use '*' for global rules, or a volume handle for volume-specific rules.
+    // Rule values support '*' wildcards and are matched against asset folder paths.
+    // Ignore rules are applied after include rules.
+    // Values without '*' are treated as folder prefixes (for example: 'private' => 'private/*').
+    // 'ignoreRules' => [
+    //     '*' => ['cache/*'],
+    //     'images' => ['private', 'archive/2023/*'],
+    // ],
+
     // Automatically queue thumbhash generation on asset save/replace events.
     // Set to false to disable event-driven generation and run manually via Utility/CLI.
     // Default: true

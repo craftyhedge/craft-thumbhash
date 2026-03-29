@@ -74,6 +74,16 @@ class GenerateThumbhashBatch extends BaseBatchedJob
             $query->volume((array)$this->volumes);
         }
 
+        $plugin = Plugin::getInstance();
+        if ($plugin !== null) {
+            $plugin->applyFolderRulesToQuery(
+                $query,
+                folderPathColumn: 'volumeFolders.path',
+                volumeHandleColumn: null,
+                volumeIdColumn: 'assets.volumeId',
+            );
+        }
+
         return new QueryBatcher($query);
     }
 
@@ -165,7 +175,16 @@ class GenerateThumbhashBatch extends BaseBatchedJob
             return;
         }
 
-        $service = Plugin::getInstance()->thumbhash;
+        $plugin = Plugin::getInstance();
+        if ($plugin === null) {
+            return;
+        }
+
+        if (!$plugin->isAssetAllowed($asset)) {
+            return;
+        }
+
+        $service = $plugin->thumbhash;
         $generateDataUrl = $service->shouldGenerateDataUrl();
 
         if ($service->isAssetCurrent($asset, $generateDataUrl)) {
@@ -252,6 +271,7 @@ class GenerateThumbhashBatch extends BaseBatchedJob
             ->select(['assets.id'])
             ->from(['assets' => CraftTable::ASSETS])
             ->innerJoin(['elements' => CraftTable::ELEMENTS], '[[elements.id]] = [[assets.id]]')
+            ->innerJoin(['volumeFolders' => CraftTable::VOLUMEFOLDERS], '[[volumeFolders.id]] = [[assets.folderId]]')
             ->leftJoin(['thumbhashes' => PluginTable::THUMBHASHES], '[[thumbhashes.assetId]] = [[assets.id]]')
             ->where([
                 'elements.dateDeleted' => null,
@@ -269,6 +289,16 @@ class GenerateThumbhashBatch extends BaseBatchedJob
 
         if ($volumeIds !== null) {
             $query->andWhere(['assets.volumeId' => $volumeIds]);
+        }
+
+        $plugin = Plugin::getInstance();
+        if ($plugin !== null) {
+            $plugin->applyFolderRulesToQuery(
+                $query,
+                folderPathColumn: 'volumeFolders.path',
+                volumeHandleColumn: null,
+                volumeIdColumn: 'assets.volumeId',
+            );
         }
 
         $staleConditions = [

@@ -16,6 +16,24 @@ class Settings extends Model
     public array|string|null $volumes = '*';
 
     /**
+     * Folder include rules keyed by scope.
+     * Use `*` for global rules or a volume handle for per-volume rules.
+     * Rule values are folder path patterns that support `*` wildcards.
+     *
+     * @var array<string, string|array<int, string>>
+     */
+    public array $includeRules = [];
+
+    /**
+     * Folder ignore rules keyed by scope.
+     * Use `*` for global rules or a volume handle for per-volume rules.
+     * Rule values are folder path patterns that support `*` wildcards.
+     *
+     * @var array<string, string|array<int, string>>
+     */
+    public array $ignoreRules = [];
+
+    /**
      * Whether to automatically queue generation on asset save/replace events.
      */
     public bool $autoGenerate = true;

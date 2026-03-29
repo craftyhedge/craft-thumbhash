@@ -32,7 +32,16 @@ class GenerateThumbhash extends BaseJob
             return;
         }
 
-        $service = Plugin::getInstance()->thumbhash;
+        $plugin = Plugin::getInstance();
+        if ($plugin === null) {
+            return;
+        }
+
+        if (!$plugin->isAssetAllowed($asset)) {
+            return;
+        }
+
+        $service = $plugin->thumbhash;
         $generateDataUrl = $service->shouldGenerateDataUrl();
 
         if ($service->isAssetCurrent($asset, $generateDataUrl)) {

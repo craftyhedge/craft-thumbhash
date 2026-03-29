@@ -1191,6 +1191,7 @@ class ThumbhashService extends Component
         $query = (new Query())
             ->from(['thumbhashes' => PluginTable::THUMBHASHES])
             ->innerJoin(['assets' => CraftTable::ASSETS], '[[assets.id]] = [[thumbhashes.assetId]]')
+            ->innerJoin(['volumeFolders' => CraftTable::VOLUMEFOLDERS], '[[volumeFolders.id]] = [[assets.folderId]]')
             ->innerJoin(['elements' => CraftTable::ELEMENTS], '[[elements.id]] = [[assets.id]]')
             ->where([
                 'elements.dateDeleted' => null,
@@ -1207,6 +1208,16 @@ class ThumbhashService extends Component
 
         if ($volumeIds !== null) {
             $query->andWhere(['assets.volumeId' => $volumeIds]);
+        }
+
+        $plugin = Plugin::getInstance();
+        if ($plugin !== null) {
+            $plugin->applyFolderRulesToQuery(
+                $query,
+                folderPathColumn: 'volumeFolders.path',
+                volumeHandleColumn: null,
+                volumeIdColumn: 'assets.volumeId',
+            );
         }
 
         return $query;
