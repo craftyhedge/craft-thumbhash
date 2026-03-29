@@ -107,9 +107,17 @@ class ThumbhashService extends Component
     private function generateHashPayloadFromTransform(Asset $asset, bool $generateDataUrl): array
     {
         $assetId = (int)$asset->id;
+        $pipelineStartedAt = microtime(true);
 
         try {
+            $transformStartedAt = microtime(true);
             $transformUrl = $asset->getUrl($this->getSourceTransformDefinition(), true);
+            $transformMs = $this->durationMs($transformStartedAt);
+
+            $this->logEvent('debug', 'thumbhash.pipeline.timing.transform_url', [
+                'assetId' => $assetId,
+                'durationMs' => $transformMs,
+            ]);
 
             if (!$transformUrl) {
                 $this->logEvent('info', 'thumbhash.generate.failure', [
@@ -141,7 +149,15 @@ class ThumbhashService extends Component
             }
 
             try {
+                $fetchStartedAt = microtime(true);
                 $fetched = $this->fetchTransformToPath($transformUrl, $tempPath, $assetId);
+                $fetchMs = $this->durationMs($fetchStartedAt);
+
+                $this->logEvent('debug', 'thumbhash.pipeline.timing.fetch', [
+                    'assetId' => $assetId,
+                    'durationMs' => $fetchMs,
+                    'fetched' => $fetched,
+                ]);
 
                 if (!$fetched) {
                     $this->logEvent('info', 'thumbhash.generate.failure', [
@@ -157,7 +173,9 @@ class ThumbhashService extends Component
                     ];
                 }
 
+                $processStartedAt = microtime(true);
                 $payload = $this->generateHashPayloadFromPath($tempPath, $generateDataUrl);
+                $processMs = $this->durationMs($processStartedAt);
 
                 if ($payload === null) {
                     $this->logEvent('warning', 'thumbhash.generate.failure', [
@@ -166,6 +184,16 @@ class ThumbhashService extends Component
                         'reason' => 'extract_failed',
                     ]);
                 } else {
+                    $pipelineMs = $this->durationMs($pipelineStartedAt);
+
+                    $this->logEvent('debug', 'thumbhash.pipeline.timing.total', [
+                        'assetId' => $assetId,
+                        'transformUrlMs' => $transformMs,
+                        'fetchMs' => $fetchMs,
+                        'processMs' => $processMs,
+                        'totalMs' => $pipelineMs,
+                    ]);
+
                     $this->logEvent('debug', 'thumbhash.generate.success', [
                         'assetId' => $assetId,
                         'generateDataUrl' => $generateDataUrl,
@@ -201,6 +229,7 @@ class ThumbhashService extends Component
     private function generateHashPayloadFromPath(string $path, bool $generateDataUrl): ?array
     {
         // Resize and extract RGBA pixels
+        $extractStartedAt = microtime(true);
         if (extension_loaded('imagick')) {
             $rgba = $this->extractRgbaImagick($path);
         } elseif (extension_loaded('gd')) {
@@ -209,6 +238,13 @@ class ThumbhashService extends Component
             Craft::error('ThumbHash: Neither Imagick nor GD extension is available.', __METHOD__);
             return null;
         }
+        $extractMs = $this->durationMs($extractStartedAt);
+
+        $this->logEvent('debug', 'thumbhash.pipeline.timing.extract_rgba', [
+            'durationMs' => $extractMs,
+            'driver' => extension_loaded('imagick') ? 'imagick' : 'gd',
+            'success' => $rgba !== null,
+        ]);
 
         if ($rgba === null) {
             return null;
@@ -216,9 +252,28 @@ class ThumbhashService extends Component
 
         [$width, $height, $pixels] = $rgba;
 
+        $encodeStartedAt = microtime(true);
         $hashArray = Thumbhash::RGBAToHash($width, $height, $pixels);
         $hash = Thumbhash::convertHashToString($hashArray);
-        $dataUrl = $generateDataUrl ? $this->hashArrayToDataUrl($hashArray) : null;
+        $encodeMs = $this->durationMs($encodeStartedAt);
+
+        $this->logEvent('debug', 'thumbhash.pipeline.timing.hash_encode', [
+            'durationMs' => $encodeMs,
+            'width' => $width,
+            'height' => $height,
+        ]);
+
+        $dataUrl = null;
+        if ($generateDataUrl) {
+            $dataUrlStartedAt = microtime(true);
+            $dataUrl = $this->hashArrayToDataUrl($hashArray);
+            $dataUrlMs = $this->durationMs($dataUrlStartedAt);
+
+            $this->logEvent('debug', 'thumbhash.pipeline.timing.data_url', [
+                'durationMs' => $dataUrlMs,
+                'bytes' => strlen($dataUrl),
+            ]);
+        }
 
         return [
             'hash' => $hash,
