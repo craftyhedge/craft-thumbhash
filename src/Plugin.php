@@ -25,6 +25,7 @@ use craftyhedge\craftthumbhash\records\ThumbhashRecord;
 use craftyhedge\craftthumbhash\services\ThumbhashService;
 use craftyhedge\craftthumbhash\twig\Extension;
 use craftyhedge\craftthumbhash\utilities\ThumbhashUtility;
+use Monolog\Formatter\LineFormatter;
 use Psr\Log\LogLevel;
 use yii\base\Event;
 use yii\base\InvalidConfigException;
@@ -75,22 +76,28 @@ class Plugin extends BasePlugin
         /** @var Settings $settings */
         $settings = $this->getSettings();
         $logDebug = (bool)$settings->logDebug;
+        $allowLineBreaks = App::devMode();
         $logLevel = App::devMode()
             ? ($logDebug ? LogLevel::DEBUG : LogLevel::INFO)
             : LogLevel::WARNING;
 
-        foreach ($logDispatcher->targets as $target) {
+        foreach ($logDispatcher->targets as $index => $target) {
             if (
                 $target instanceof MonologTarget &&
                 in_array(self::LOG_CATEGORY_PREFIX, (array)$target->categories, true) &&
                 in_array(self::LOG_CATEGORY_HANDLE, (array)$target->categories, true)
             ) {
-                $target->level = $logLevel;
-                $target->allowLineBreaks = App::devMode();
-                $target->logContext = false;
-                return;
+                unset($logDispatcher->targets[$index]);
+                break;
             }
         }
+
+        $formatter = new LineFormatter(
+            format: "%datetime% [%channel%.%level_name%] [%extra.yii_category%] %message% %context% %extra%\n",
+            dateFormat: 'Y-m-d H:i:s T',
+            allowInlineLineBreaks: $allowLineBreaks,
+            ignoreEmptyContextAndExtra: true,
+        );
 
         $logDispatcher->targets[] = Craft::createObject([
             'class' => MonologTarget::class,
@@ -100,8 +107,11 @@ class Plugin extends BasePlugin
                 self::LOG_CATEGORY_HANDLE,
             ],
             'level' => $logLevel,
-            'allowLineBreaks' => App::devMode(),
+            'allowLineBreaks' => $allowLineBreaks,
             'logContext' => false,
+            'addTimestampToContext' => true,
+            'exportInterval' => 1,
+            'formatter' => $formatter,
         ]);
     }
 
