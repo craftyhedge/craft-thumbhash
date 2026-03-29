@@ -34,10 +34,10 @@
         <span id="thumbhash-grid-count">{{ displayCount }}</span>
     </p>
 
-    <div id="thumbhash-png-grid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(32px, 1fr)); gap: 3px;">
+    <div id="thumbhash-png-grid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(28px, 1fr)); gap: 2px;">
         {% for row in initialRows %}
             <div class="thumbhash-png-item" data-asset-id="{{ row.assetId }}" title="Asset #{{ row.assetId }}" style="display:block; width: 100%; aspect-ratio: 1 / 1;">
-                <img src="{{ row.dataUrl }}" alt="" loading="lazy" style="display:block; width:100%; height:100%; object-fit:cover; border-radius:3px;" />
+                <img src="{{ row.dataUrl }}" alt="" loading="lazy" style="display:block; width:100%; height:100%; object-fit:cover; border-radius:2px;" />
             </div>
         {% endfor %}
     </div>
@@ -55,6 +55,62 @@
 
     <p id="thumbhash-assets-empty" class="light{{ initialRows|length or initialHashRows|length ? ' hidden' : '' }}" style="margin-top: var(--s);">{{ 'Hit generate to start.'|t('thumbhash') }}</p>
 </div>
+
+{% css %}
+#thumbhash-png-grid {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+}
+
+#thumbhash-png-grid.thumbhash-grid-loading .thumbhash-png-item {
+    opacity: 1;
+    transition: opacity 140ms linear;
+}
+
+#thumbhash-png-grid.thumbhash-grid-loading::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 2;
+    background: linear-gradient(
+        108deg,
+        rgba(255, 255, 255, 0) 28%,
+        rgba(255, 255, 255, 0.34) 50%,
+        rgba(255, 255, 255, 0) 72%
+    );
+    transform: translateX(-130%);
+    animation: thumbhash-grid-sweep 1.5s linear infinite;
+}
+
+#thumbhash-png-grid.thumbhash-grid-loading .thumbhash-png-item img,
+#thumbhash-png-grid.thumbhash-grid-loading .thumbhash-png-item span {
+    filter: saturate(0.96);
+}
+
+@keyframes thumbhash-grid-sweep {
+    from {
+        transform: translateX(-130%);
+    }
+
+    to {
+        transform: translateX(130%);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #thumbhash-png-grid.thumbhash-grid-loading::after {
+        animation: none;
+        transform: none;
+        opacity: 0;
+    }
+
+    #thumbhash-png-grid.thumbhash-grid-loading .thumbhash-png-item {
+        opacity: 0.78;
+    }
+}
+{% endcss %}
 
 {% js %}
 (() => {
@@ -116,6 +172,17 @@
             .replaceAll('>', '&gt;')
             .replaceAll('"', '&quot;')
             .replaceAll("'", '&#39;');
+    };
+
+    const setGridLoading = (isLoading) => {
+        if (isLoading) {
+            $grid.addClass('thumbhash-grid-loading');
+            $grid.attr('aria-busy', 'true');
+            return;
+        }
+
+        $grid.removeClass('thumbhash-grid-loading');
+        $grid.removeAttr('aria-busy');
     };
 
     const ensureHashListSkeleton = () => {
@@ -496,6 +563,7 @@
 
     const startPolling = () => {
         stopPolling();
+        setGridLoading(true);
 
         pollTimer = setInterval(async () => {
             if (pollRequestActive) {
@@ -517,6 +585,7 @@
 
                 if (runState === 'failed') {
                     stopPolling();
+                    setGridLoading(false);
                     setButtonEnabled(true);
                     setFailedStatus(runError);
                     return;
@@ -524,6 +593,7 @@
 
                 if (runState === 'completed_with_failures') {
                     stopPolling();
+                    setGridLoading(false);
                     setButtonEnabled(true);
                     await loadGridRows();
                     setCompletedWithFailuresStatus(runError);
@@ -534,12 +604,14 @@
                 if (runComplete) {
                     await loadGridRows({ forceFull: true });
                     stopPolling();
+                    setGridLoading(false);
                     setButtonEnabled(true);
                     $status.text(Craft.t('thumbhash', 'Processing complete.'));
                     return;
                 }
             } catch (error) {
                 stopPolling();
+                setGridLoading(false);
                 setButtonEnabled(true);
                 $status.text(Craft.t('thumbhash', 'Could not refresh progress.'));
             } finally {
@@ -556,6 +628,7 @@
         }
 
         setButtonEnabled(false);
+        setGridLoading(true);
         $status.text(Craft.t('thumbhash', 'Queueing jobs...'));
 
         try {
@@ -573,6 +646,7 @@
 
             if (runTotal === 0) {
                 $status.text(Craft.t('thumbhash', 'No eligible images found.'));
+                setGridLoading(false);
                 setButtonEnabled(true);
                 return false;
             }
@@ -582,6 +656,7 @@
 
             startPolling();
         } catch (error) {
+            setGridLoading(false);
             setButtonEnabled(true);
             $status.text(Craft.t('thumbhash', 'Could not queue jobs.'));
         }
@@ -600,6 +675,7 @@
         }
 
         setButtonEnabled(false);
+        setGridLoading(false);
         $status.text(Craft.t('thumbhash', 'Clearing thumbhash records...'));
 
         try {
@@ -614,6 +690,7 @@
             $status.text(Craft.t('thumbhash', 'Could not clear thumbhash records.'));
         } finally {
             stopPolling();
+            setGridLoading(false);
             setButtonEnabled(true);
         }
 
@@ -631,12 +708,14 @@
             const runError = String(run.error || '');
 
             if (runState === 'failed') {
+                setGridLoading(false);
                 setFailedStatus(runError);
                 setButtonEnabled(true);
                 return;
             }
 
             if (runState === 'completed_with_failures') {
+                setGridLoading(false);
                 await loadGridRows();
                 setCompletedWithFailuresStatus(runError);
                 setButtonEnabled(true);
@@ -644,12 +723,14 @@
             }
 
             if (!hasRun) {
+                setGridLoading(false);
                 return;
             }
 
             runTotal = Number(run.total || 0);
 
             if (runTotal <= 0) {
+                setGridLoading(false);
                 return;
             }
 

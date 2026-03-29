@@ -22,7 +22,7 @@ This plugin supports two frontend delivery approaches:
 - Triggers a fit transform (default width 100px, height auto) of the original image and encodes it to a compact base64 hash string (~28 bytes) using the ThumbHash algorithm.
 - Decodes the hash to a PNG data URL and stores it in the database for inline use without JavaScript.
 - ThumbHash generation is performed asynchronously in a queue job to avoid blocking the request thread.
-- Placeholders are generated on new uploads and file replacements, with a CLI command for backfilling existing assets.
+- When `autoGenerate` is enabled (default), placeholders are generated on new uploads and file replacements, with a CLI command for backfilling existing assets.
 
 ### JS Decoder vs. Inline Data URLs
 
@@ -218,7 +218,7 @@ var backgroundImage = window.thumbhash.toBackgroundImage('BASE64_HASH');
 
 ## Configuration
 
-Create `config/thumbhash.php` in your Craft project to limit generation by volume handle:
+Create `config/thumbhash.php` in your Craft project to control generation behavior:
 
 ```php
 <?php
@@ -230,9 +230,10 @@ return [
     // Or restrict generation to specific volumes
     // 'volumes' => ['images', 'hero'],
 
-    // Generate and store the base64 thumbhash string (~28 bytes per asset).
-    // Used with the client-side JS decoder. Default: true
-    // 'generateHash' => true,
+    // Automatically queue thumbhash generation on asset save/replace events.
+    // Set to false to disable event-driven generation and run manually via Utility/CLI.
+    // Default: true
+    // 'autoGenerate' => true,
 
     // Generate and store the decoded PNG data URL (typically ~0.8-2KB per asset).
     // Used for inline placeholders without JavaScript. Set to false to disable PNG creation.
@@ -286,6 +287,14 @@ return [
 For the best server performance, it is recommended to use an external transform service like Imgix or Cloudflare Images.
 
 If your project is set up to replace native Craft transforms with an external service, ThumbHash should use it too. You can verify the source URL used for hash generation in the ThumbHash logs.
+
+## Performance Considerations
+
+- ThumbHash generation is performed asynchronously in a queue job to avoid blocking the request thread.
+- If `autoGenerate` is enabled, uploading or replacing an image asset will trigger a new hash generation job for that asset.
+- When uploading large numbers of assets at once Craft limits uploads to small batches so you only ever get a few hash generation jobs queued at once.
+- The actual generation work to hash the transformed image is typically quite fast but the real bottleneck is the image transform step, especially if you are using the default server-side transforms. Using an external transform service can significantly reduce generation time and improve overall performance.
+- Reprocessing unchanged assets will reuse existing transforms, so subsequent runs are typically much faster after the initial batch.
 
 ## Backfilling Existing Assets
 

@@ -12,6 +12,11 @@ return [
     // 'volumes' => '*',
     // 'volumes' => ['images', 'hero'],
 
+    // Automatically queue thumbhash generation on asset save/replace events.
+    // Set to false to disable event-driven generation and run manually via Utility/CLI.
+    // Default: true
+    // 'autoGenerate' => true,
+
     // Generate and store the decoded PNG data URL (typically ~0.8-2KB per asset).
     // Set to false to disable PNG creation and only store hash strings.
     // Default: true

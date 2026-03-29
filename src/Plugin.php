@@ -254,34 +254,40 @@ class Plugin extends BasePlugin
             },
         );
 
-        // Generate thumbhash when a new image asset is created
-        Event::on(
-            Asset::class,
-            Element::EVENT_AFTER_SAVE,
-            function (ModelEvent $event) {
-                if (!$event->isNew) {
-                    return;
-                }
+        if ($this->shouldAutoGenerateOnAssetEvents()) {
+            // Generate thumbhash when a new image asset is created
+            Event::on(
+                Asset::class,
+                Element::EVENT_AFTER_SAVE,
+                function (ModelEvent $event) {
+                    if (!$event->isNew) {
+                        return;
+                    }
 
-                /** @var Asset $asset */
-                $asset = $event->sender;
+                    /** @var Asset $asset */
+                    $asset = $event->sender;
 
-                $this->pushThumbhashJob($asset);
-            },
-        );
+                    $this->pushThumbhashJob($asset);
+                },
+            );
 
-        // Regenerate thumbhash when an existing asset's file is replaced
-        Event::on(
-            Assets::class,
-            Assets::EVENT_AFTER_REPLACE_ASSET,
-            function (ReplaceAssetEvent $event) {
-                $this->pushThumbhashJob($event->asset);
-            },
-        );
+            // Regenerate thumbhash when an existing asset's file is replaced
+            Event::on(
+                Assets::class,
+                Assets::EVENT_AFTER_REPLACE_ASSET,
+                function (ReplaceAssetEvent $event) {
+                    $this->pushThumbhashJob($event->asset);
+                },
+            );
+        }
     }
 
     private function pushThumbhashJob(Asset $asset): void
     {
+        if (!$this->shouldAutoGenerateOnAssetEvents()) {
+            return;
+        }
+
         if ($asset->kind !== Asset::KIND_IMAGE) {
             return;
         }
@@ -320,6 +326,14 @@ class Plugin extends BasePlugin
         }
 
         return in_array($volume->handle, (array) $volumes, true);
+    }
+
+    private function shouldAutoGenerateOnAssetEvents(): bool
+    {
+        /** @var Settings $settings */
+        $settings = $this->getSettings();
+
+        return (bool)$settings->autoGenerate;
     }
 
     private function shouldShowPngPreviewColumn(): bool
