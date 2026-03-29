@@ -15,7 +15,9 @@
         "lqip",
         "placeholder",
         "hash",
-        "image"
+        "image",
+        "thumb",
+        "thumbhash"
     ],
     "require": {
         "php": "^8.2",

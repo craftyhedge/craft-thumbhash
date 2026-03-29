@@ -155,9 +155,8 @@ class Plugin extends BasePlugin
                 $event->metadata[Craft::t('thumbhash', '#PNG')] = $dataUrl && str_starts_with($dataUrl, 'data:image/')
                     ? Html::img($dataUrl, [
                         'alt' => '',
-                        'width' => 56,
-                        'height' => 56,
-                        'style' => 'display:block; width:56px; height:56px; object-fit:contain; border-radius:4px;',
+                        'width'=> '100px', 
+                        'style' => 'display:block; max-width:100px; width:100%; height:auto;  object-fit:contain; border-radius:4px;',
                     ])
                     : Html::tag('span', '-', ['class' => 'light']);
             },

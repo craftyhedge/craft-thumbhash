@@ -45,11 +45,11 @@ Use this when you want a no-JavaScript placeholder path.
 
 #### Quick rule of thumb
 
-- Prefer JS Decoder for smallest HTML payload per image.
-- Prefer Inline Data URLs for zero-JS rendering.
+- Prefer JS Decoder for smallest HTML payload per image. Good for image heavy sites and infinite scroll contexts.
+- Prefer Inline Data URLs for zero-JS rendering. If you need it.
 - Both approaches avoid an extra placeholder request.
 
-If your images are hosted externally and that service goes down for whatever reason, users will always get a placeholder.
+The JS decoder is the most common and generally recommended approach for most use cases.
 
 ## Example
 

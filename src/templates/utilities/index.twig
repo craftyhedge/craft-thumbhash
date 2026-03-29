@@ -24,6 +24,27 @@
     </div>
 </form>
 
+<div style="margin-top: var(--m);">
+    {% embed '_includes/disclosure-toggle' with {
+        id: 'thumbhash-info-toggle',
+        controls: 'thumbhash-info-panel',
+        state: 'collapsed',
+    } %}
+        {% block content %}
+            <span style="display: inline-flex; align-items: center; gap: var(--xs);"><span class="cp-icon puny">{{ iconSvg('angle-down') }}</span>{{ 'About this utility'|t('thumbhash') }}</span>
+        {% endblock %}
+    {% endembed %}
+    <div id="thumbhash-info-panel" class="pane" style="margin-top: var(--s); max-width: 700px;">
+        <div>
+            <p>{{ '<strong>Generate</strong> scans every image asset and creates a compact thumbhash for each one. Images that already have a hash are skipped.'|t('thumbhash')|raw }}</p>
+            <p>{{ '<strong>Clear All</strong> removes every stored thumbhash from the database. Templates using <code>thumbhash()</code> and <code>thumbhashDataUrl()</code> will return empty values until you regenerate.'|t('thumbhash')|raw }}</p>
+            <p>{{ 'If your site uses static caching and has a small number of images, clearing and regenerating is fine. For large image libraries, non-cached sites, or local transforms, maybe best to wait for a low-traffic window.'|t('thumbhash') }}</p>
+            <p>{{ 'They are just placeholders but depending on your system setup could take some time to process.'|t('thumbhash') }}</p>
+
+        </div>
+    </div>
+</div>
+
 <div style="margin-top: var(--xl);">
     {% set pngCount = initialRows|length %}
     {% set hashCount = initialHashRows|length %}
@@ -34,7 +55,7 @@
         <span id="thumbhash-grid-count">{{ displayCount }}</span>
     </p>
 
-    <div id="thumbhash-png-grid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(28px, 1fr)); gap: 2px;">
+    <div id="thumbhash-png-grid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(32px, 1fr)); gap: 3px;">
         {% for row in initialRows %}
             <div class="thumbhash-png-item" data-asset-id="{{ row.assetId }}" title="Asset #{{ row.assetId }}" style="display:block; width: 100%; aspect-ratio: 1 / 1;">
                 <img src="{{ row.dataUrl }}" alt="" loading="lazy" style="display:block; width:100%; height:100%; object-fit:cover; border-radius:0px;" />
@@ -57,10 +78,20 @@
 </div>
 
 {% css %}
+#thumbhash-info-panel:not([data-state="expanded"]) {
+    display: none;
+}
+
 #thumbhash-png-grid {
     position: relative;
     overflow: hidden;
     isolation: isolate;
+}
+
+.thumbhash-png-item {
+    border: 1px solid #d4d8df;
+    border-radius: 3px;
+    overflow: hidden;
 }
 
 #thumbhash-png-grid.thumbhash-grid-loading .thumbhash-png-item {
