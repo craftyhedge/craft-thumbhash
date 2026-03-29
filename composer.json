@@ -1,6 +1,6 @@
 {
     "name": "craftyhedge/craft-thumbhash",
-    "description": "Automatic ThumbHash placeholder generation for Craft CMS assets",
+    "description": "Automatic ThumbHash placeholders for Craft CMS",
     "type": "craft-plugin",
     "license": "proprietary",
     "authors": [
@@ -8,6 +8,14 @@
             "name": "Crafty Hedge",
             "homepage": "https://github.com/craftyhedge"
         }
+    ],
+    "keywords": [
+        "craftcms",
+        "craft",
+        "lqip",
+        "placeholder",
+        "hash",
+        "image"
     ],
     "require": {
         "php": "^8.2",

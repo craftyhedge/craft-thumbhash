@@ -308,6 +308,24 @@ For the best server performance, it is recommended to use an external transform 
 
 If your project is set up to replace native Craft transforms with an external service, ThumbHash should use it too. You can verify the source URL used for hash generation in the ThumbHash logs.
 
+For example, Imgix users could use the Imgixer plugin and configure it to replace the Craft transform source:
+
+```php
+return [
+    'sources' => [
+        'imgix' => [
+            'provider' => 'imgix',
+            'endpoint' => App::env('IMGIX_DOMAIN'),
+            'privateKey'   => App::env('IMGIX_KEY'),
+            'signed'    => true,
+            'defaultParams' => ['auto' => 'compress,format']
+        ],
+    ],
+    'transformSource' => 'imgix', // <-- the important part :)
+];
+```
+Now ThumbHash and all you CP images will use the Imgix source for transforms.
+
 ## Performance Considerations
 
 - ThumbHash generation is performed asynchronously in a queue job to avoid blocking the request thread.
@@ -329,6 +347,8 @@ php craft thumbhash/generate --volume=images
 ```
 
 This command queues a batch job and returns immediately with the queued job ID. Processing starts when your Craft queue runner picks up the job.
+
+This can run quite slowly if you have a lot of assets and are using server-side transforms, it might be better to run it during low-traffic periods. Using an external transform service can speed this up significantly. It all depends on your server performance and how many assets you have.
 
 ## Clearing Stored Thumbhashes
 
