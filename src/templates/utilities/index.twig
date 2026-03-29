@@ -609,6 +609,13 @@
                     $status.text(Craft.t('thumbhash', 'Processing complete.'));
                     return;
                 }
+
+                const runProcessed = Number(run.processed || 0);
+                const runTotalCount = Number(run.total || 0);
+                if (runTotalCount > 0) {
+                    const pct = Math.round((runProcessed / runTotalCount) * 100);
+                    $gridCount.text(pct + '% (' + runProcessed + ' of ' + runTotalCount + ')');
+                }
             } catch (error) {
                 stopPolling();
                 setGridLoading(false);
@@ -653,6 +660,10 @@
 
             $status.text(Craft.t('thumbhash', 'Processing images...'));
             await loadGridRows();
+
+            if (runTotal > 0) {
+                $gridCount.text('0% (0 of ' + runTotal + ')');
+            }
 
             startPolling();
         } catch (error) {
@@ -737,6 +748,13 @@
             $status.text(Craft.t('thumbhash', 'Resuming processing...'));
             setButtonEnabled(false);
             await loadGridRows();
+
+            const resumeProcessed = Number(run.processed || 0);
+            if (runTotal > 0) {
+                const pct = Math.round((resumeProcessed / runTotal) * 100);
+                $gridCount.text(pct + '% (' + resumeProcessed + ' of ' + runTotal + ')');
+            }
+
             startPolling();
         } catch (error) {
             // Ignore resume errors; user can start a new run manually.
