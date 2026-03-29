@@ -85,7 +85,7 @@ php craft plugin/install thumbhash
 ### Twig Templates
 
 The decoder script will decode each hash to a tiny PNG data URL and set it as the `src` on the element.
-The script is inlined directly into the `<head>` (no extra HTTP request) for the earliest possible placeholder paint. It is small enough (~12 KB unminified) that parser-blocking cost is negligible, and placing it in the `<head>` lets the MutationObserver start before any `<body>` elements are parsed — so placeholders appear as the DOM is built rather than after.
+The script is inlined directly into the `<head>` (no extra HTTP request) for the earliest possible placeholder paint. It is small enough (>4 KB minified) that parser-blocking cost is negligible, and placing it in the `<head>` lets the MutationObserver start before any `<body>` elements are parsed — so placeholders appear as the DOM is built rather than after.
 
 ```twig
 {# Register the inline decoder script (safe to call; Craft includes it once per page) #}
