@@ -17,7 +17,12 @@ class GenerateThumbhash extends BaseJob
             'assetId' => $this->assetId,
         ]));
 
-        $asset = Asset::find()->id($this->assetId)->one();
+        $asset = Asset::find()
+            ->id($this->assetId)
+            ->status(null)
+            ->site('*')
+            ->unique(true)
+            ->one();
 
         if (!$asset) {
             return;

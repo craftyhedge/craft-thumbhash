@@ -3,15 +3,20 @@
 namespace craftyhedge\craftthumbhash\services;
 
 use Craft;
+use craft\db\Query;
+use craft\db\Table as CraftTable;
 use craft\elements\Asset;
+use craft\helpers\Db;
 use craft\helpers\UrlHelper;
 use Psr\Http\Message\ResponseInterface;
 use samdark\log\PsrMessage;
 use Thumbhash\Thumbhash;
+use craftyhedge\craftthumbhash\db\Table as PluginTable;
 use craftyhedge\craftthumbhash\Plugin;
 use craftyhedge\craftthumbhash\records\ThumbhashRecord;
 use DateTimeInterface;
 use yii\base\Component;
+use yii\db\IntegrityException;
 use yii\log\Logger;
 
 class ThumbhashService extends Component
@@ -742,20 +747,54 @@ class ThumbhashService extends Component
             $record->assetId = $assetId;
         }
 
-        $record->hash = $hash;
-        $record->dataUrl = $dataUrl;
-        $record->sourceModifiedAt = $sourceModifiedAt;
-        $record->sourceSize = $sourceSize;
-        $record->sourceWidth = $sourceWidth;
-        $record->sourceHeight = $sourceHeight;
+        $this->applyHashDataToRecord(
+            $record,
+            $hash,
+            $dataUrl,
+            $sourceModifiedAt,
+            $sourceSize,
+            $sourceWidth,
+            $sourceHeight,
+        );
 
-        if (!$record->save()) {
-            Craft::error(
-                'ThumbHash: Failed to save hash for asset ' . $assetId . ': ' . implode(', ', $record->getFirstErrors()),
-                __METHOD__,
+        try {
+            if (!$this->saveHashRecord($record, $assetId)) {
+                return;
+            }
+        } catch (IntegrityException $e) {
+            if (!$this->isUniqueAssetIdViolation($e)) {
+                throw $e;
+            }
+
+            $this->logEvent('info', 'thumbhash.save.collision_retry', [
+                'assetId' => $assetId,
+                'exceptionType' => $e::class,
+            ]);
+
+            $record = ThumbhashRecord::findOne(['assetId' => $assetId]);
+
+            if (!$record) {
+                $this->logEvent('warning', 'thumbhash.save.failure', [
+                    'assetId' => $assetId,
+                    'reason' => 'collision_retry_missing_record',
+                ]);
+
+                return;
+            }
+
+            $this->applyHashDataToRecord(
+                $record,
+                $hash,
+                $dataUrl,
+                $sourceModifiedAt,
+                $sourceSize,
+                $sourceWidth,
+                $sourceHeight,
             );
 
-            return;
+            if (!$this->saveHashRecord($record, $assetId)) {
+                return;
+            }
         }
 
         unset($this->dataUrlCache[$assetId]);
@@ -781,6 +820,54 @@ class ThumbhashService extends Component
             $sourceWidth,
             $sourceHeight,
         );
+    }
+
+    private function applyHashDataToRecord(
+        ThumbhashRecord $record,
+        ?string $hash,
+        ?string $dataUrl,
+        ?int $sourceModifiedAt,
+        ?int $sourceSize,
+        ?int $sourceWidth,
+        ?int $sourceHeight,
+    ): void {
+        $record->hash = $hash;
+        $record->dataUrl = $dataUrl;
+        $record->sourceModifiedAt = $sourceModifiedAt;
+        $record->sourceSize = $sourceSize;
+        $record->sourceWidth = $sourceWidth;
+        $record->sourceHeight = $sourceHeight;
+    }
+
+    private function saveHashRecord(ThumbhashRecord $record, int $assetId): bool
+    {
+        if (!$record->save()) {
+            Craft::error(
+                'ThumbHash: Failed to save hash for asset ' . $assetId . ': ' . implode(', ', $record->getFirstErrors()),
+                __METHOD__,
+            );
+
+            return false;
+        }
+
+        return true;
+    }
+
+    private function isUniqueAssetIdViolation(IntegrityException $e): bool
+    {
+        $message = strtolower(trim($e->getMessage()));
+
+        if ($message === '') {
+            return false;
+        }
+
+        $mentionsAssetId = str_contains($message, 'assetid') || str_contains($message, 'asset_id');
+
+        if (!$mentionsAssetId) {
+            return false;
+        }
+
+        return str_contains($message, 'duplicate') || str_contains($message, 'unique');
     }
 
     /**
@@ -946,18 +1033,7 @@ class ThumbhashService extends Component
      */
     public function getUtilityPngRows(): array
     {
-        $records = ThumbhashRecord::find()
-            ->where(['not', ['dataUrl' => null]])
-            ->andWhere(['!=', 'dataUrl', ''])
-            ->orderBy(['assetId' => SORT_ASC])
-            ->all();
-
-        return array_map(static function(ThumbhashRecord $record): array {
-            return [
-                'assetId' => (int)$record->assetId,
-                'dataUrl' => (string)$record->dataUrl,
-            ];
-        }, $records);
+        return $this->getUtilityPngRowsSnapshot()['rows'];
     }
 
     /**
@@ -967,18 +1043,236 @@ class ThumbhashService extends Component
      */
     public function getUtilityHashRows(): array
     {
-        $records = ThumbhashRecord::find()
-            ->where(['not', ['hash' => null]])
-            ->andWhere(['!=', 'hash', ''])
-            ->orderBy(['assetId' => SORT_ASC])
-            ->all();
+        return $this->getUtilityHashRowsSnapshot()['rows'];
+    }
 
-        return array_map(static function(ThumbhashRecord $record): array {
+    /**
+     * @return array{rows: array<int, array{assetId: int, dataUrl: string}>, cursorUpdatedAt: string|null, cursorAssetId: int, delta: bool}
+     */
+    public function getUtilityPngRowsSnapshot(?string $sinceUpdatedAt = null, int $sinceAssetId = 0): array
+    {
+        $delta = $sinceUpdatedAt !== null && $sinceUpdatedAt !== '';
+
+        $query = $this->utilityBaseQuery()
+            ->select(['thumbhashes.assetId', 'thumbhashes.dataUrl', 'thumbhashes.dateUpdated'])
+            ->andWhere(['not', ['thumbhashes.dataUrl' => null]])
+            ->andWhere(['!=', 'thumbhashes.dataUrl', '']);
+
+        if ($delta) {
+            $query
+                ->andWhere([
+                    'or',
+                    ['>', 'thumbhashes.dateUpdated', $sinceUpdatedAt],
+                    [
+                        'and',
+                        ['thumbhashes.dateUpdated' => $sinceUpdatedAt],
+                        ['>', 'thumbhashes.assetId', max(0, $sinceAssetId)],
+                    ],
+                ])
+                ->orderBy(['thumbhashes.dateUpdated' => SORT_ASC, 'thumbhashes.assetId' => SORT_ASC]);
+        } else {
+            $query->orderBy(['thumbhashes.assetId' => SORT_ASC]);
+        }
+
+        /** @var array<int, array{assetId: int|string, dataUrl: string|null, dateUpdated: mixed}> $records */
+        $records = $query->all();
+
+        $rows = array_map(static function(array $record): array {
             return [
-                'assetId' => (int)$record->assetId,
-                'hash' => (string)$record->hash,
+                'assetId' => (int)($record['assetId'] ?? 0),
+                'dataUrl' => (string)($record['dataUrl'] ?? ''),
             ];
         }, $records);
+
+        [$cursorUpdatedAt, $cursorAssetId] = $this->utilityCursorFromRows(
+            $records,
+            $sinceUpdatedAt,
+            $sinceAssetId,
+        );
+
+        return [
+            'rows' => $rows,
+            'cursorUpdatedAt' => $cursorUpdatedAt,
+            'cursorAssetId' => $cursorAssetId,
+            'delta' => $delta,
+        ];
+    }
+
+    /**
+     * @return array{rows: array<int, array{assetId: int, hash: string}>, cursorUpdatedAt: string|null, cursorAssetId: int, delta: bool}
+     */
+    public function getUtilityHashRowsSnapshot(?string $sinceUpdatedAt = null, int $sinceAssetId = 0): array
+    {
+        $delta = $sinceUpdatedAt !== null && $sinceUpdatedAt !== '';
+
+        $query = $this->utilityBaseQuery()
+            ->select(['thumbhashes.assetId', 'thumbhashes.hash', 'thumbhashes.dateUpdated'])
+            ->andWhere(['not', ['thumbhashes.hash' => null]])
+            ->andWhere(['!=', 'thumbhashes.hash', '']);
+
+        if ($delta) {
+            $query
+                ->andWhere([
+                    'or',
+                    ['>', 'thumbhashes.dateUpdated', $sinceUpdatedAt],
+                    [
+                        'and',
+                        ['thumbhashes.dateUpdated' => $sinceUpdatedAt],
+                        ['>', 'thumbhashes.assetId', max(0, $sinceAssetId)],
+                    ],
+                ])
+                ->orderBy(['thumbhashes.dateUpdated' => SORT_ASC, 'thumbhashes.assetId' => SORT_ASC]);
+        } else {
+            $query->orderBy(['thumbhashes.assetId' => SORT_ASC]);
+        }
+
+        /** @var array<int, array{assetId: int|string, hash: string|null, dateUpdated: mixed}> $records */
+        $records = $query->all();
+
+        $rows = array_map(static function(array $record): array {
+            return [
+                'assetId' => (int)($record['assetId'] ?? 0),
+                'hash' => (string)($record['hash'] ?? ''),
+            ];
+        }, $records);
+
+        [$cursorUpdatedAt, $cursorAssetId] = $this->utilityCursorFromRows(
+            $records,
+            $sinceUpdatedAt,
+            $sinceAssetId,
+        );
+
+        return [
+            'rows' => $rows,
+            'cursorUpdatedAt' => $cursorUpdatedAt,
+            'cursorAssetId' => $cursorAssetId,
+            'delta' => $delta,
+        ];
+    }
+
+    /**
+     * @param array<int, array{assetId: int|string, dateUpdated: mixed}> $rows
+     * @return array{0: string|null, 1: int}
+     */
+    private function utilityCursorFromRows(array $rows, ?string $sinceUpdatedAt, int $sinceAssetId): array
+    {
+        $cursorUpdatedAt = null;
+        $cursorAssetId = 0;
+
+        if ($sinceUpdatedAt !== null && $sinceUpdatedAt !== '') {
+            $cursorUpdatedAt = $sinceUpdatedAt;
+            $cursorAssetId = max(0, $sinceAssetId);
+        }
+
+        foreach ($rows as $row) {
+            $updatedAt = $this->normalizeCursorDateUpdated($row['dateUpdated'] ?? null);
+
+            if ($updatedAt === null) {
+                continue;
+            }
+
+            $assetId = (int)($row['assetId'] ?? 0);
+
+            if (
+                $cursorUpdatedAt === null ||
+                $updatedAt > $cursorUpdatedAt ||
+                ($updatedAt === $cursorUpdatedAt && $assetId > $cursorAssetId)
+            ) {
+                $cursorUpdatedAt = $updatedAt;
+                $cursorAssetId = $assetId;
+            }
+        }
+
+        return [$cursorUpdatedAt, $cursorAssetId];
+    }
+
+    private function utilityBaseQuery(): Query
+    {
+        $query = (new Query())
+            ->from(['thumbhashes' => PluginTable::THUMBHASHES])
+            ->innerJoin(['assets' => CraftTable::ASSETS], '[[assets.id]] = [[thumbhashes.assetId]]')
+            ->innerJoin(['elements' => CraftTable::ELEMENTS], '[[elements.id]] = [[assets.id]]')
+            ->where([
+                'elements.dateDeleted' => null,
+                'elements.archived' => false,
+                'assets.kind' => Asset::KIND_IMAGE,
+            ])
+            ->andWhere(Db::parseParam('assets.filename', ['not', '*.svg']));
+
+        $volumeIds = $this->resolveUtilityVolumeIds();
+        if ($volumeIds === []) {
+            $query->andWhere('0=1');
+            return $query;
+        }
+
+        if ($volumeIds !== null) {
+            $query->andWhere(['assets.volumeId' => $volumeIds]);
+        }
+
+        return $query;
+    }
+
+    /**
+     * @return array<int>|null
+     */
+    private function resolveUtilityVolumeIds(): ?array
+    {
+        $plugin = Plugin::getInstance();
+        if ($plugin === null) {
+            return null;
+        }
+
+        $volumes = $plugin->getSettings()->volumes;
+
+        if ($volumes === null || $volumes === '*') {
+            return null;
+        }
+
+        $ids = [];
+        $handles = [];
+
+        foreach ((array)$volumes as $volume) {
+            if (is_int($volume) || (is_string($volume) && ctype_digit($volume))) {
+                $ids[] = (int)$volume;
+                continue;
+            }
+
+            $handle = is_string($volume) ? trim($volume) : '';
+            if ($handle !== '') {
+                $handles[] = $handle;
+            }
+        }
+
+        if (!empty($handles)) {
+            $handleIds = (new Query())
+                ->select(['id'])
+                ->from([CraftTable::VOLUMES])
+                ->where(Db::parseParam('handle', $handles))
+                ->andWhere(['dateDeleted' => null])
+                ->column();
+
+            foreach ($handleIds as $id) {
+                if (is_numeric($id)) {
+                    $ids[] = (int)$id;
+                }
+            }
+        }
+
+        return array_values(array_unique($ids));
+    }
+
+    private function normalizeCursorDateUpdated(mixed $value): ?string
+    {
+        if ($value instanceof DateTimeInterface) {
+            return Db::prepareDateForDb($value);
+        }
+
+        if (is_string($value)) {
+            $trimmed = trim($value);
+            return $trimmed !== '' ? $trimmed : null;
+        }
+
+        return null;
     }
 
     /**

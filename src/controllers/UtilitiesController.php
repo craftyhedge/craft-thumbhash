@@ -3,7 +3,6 @@
 namespace craftyhedge\craftthumbhash\controllers;
 
 use Craft;
-use craft\elements\Asset;
 use craft\helpers\Queue as QueueHelper;
 use craft\queue\QueueInterface;
 use craft\web\Controller;
@@ -21,57 +20,9 @@ class UtilitiesController extends Controller
     private const RUN_CACHE_KEY = self::RUN_CACHE_KEY_PREFIX . 'global';
     private const RUN_FAILURE_MESSAGE = 'Some images could not be processed. They remain eligible for a future run. Check the ThumbHash logs for details.';
 
-    private function isSvgAsset(Asset $asset): bool
-    {
-        return strtolower((string)$asset->getExtension()) === 'svg';
-    }
-
     private function runCacheKey(): string
     {
         return self::RUN_CACHE_KEY;
-    }
-
-    private function utilityAssetQuery(): \craft\elements\db\AssetQuery
-    {
-        $query = Asset::find()
-            ->kind(Asset::KIND_IMAGE)
-            ->filename(['not', '*.svg']);
-
-        /** @var Settings $settings */
-        $settings = Plugin::getInstance()->getSettings();
-        $volumes = $settings->volumes;
-
-        if ($volumes !== null && $volumes !== '*') {
-            $query->volume((array)$volumes);
-        }
-
-        return $query;
-    }
-
-    /**
-     * @return array<int>
-     */
-    private function eligibleAssetIds(): array
-    {
-        $service = Plugin::getInstance()->thumbhash;
-        $generateDataUrl = $service->shouldGenerateDataUrl();
-        $assetIds = [];
-
-        foreach ($this->utilityAssetQuery()->orderBy(['elements.id' => SORT_ASC])->each() as $asset) {
-            if (!$asset instanceof Asset) {
-                continue;
-            }
-
-            if ($this->isSvgAsset($asset)) {
-                continue;
-            }
-
-            if (!$service->isAssetCurrent($asset, $generateDataUrl)) {
-                $assetIds[] = (int)$asset->id;
-            }
-        }
-
-        return $assetIds;
     }
 
     public function actionQueueGenerate(): Response
@@ -109,8 +60,12 @@ class UtilitiesController extends Controller
             }
         }
 
-        $assetIds = $this->eligibleAssetIds();
-        $total = count($assetIds);
+        $job = new GenerateThumbhashBatch([
+            'volumes' => $volumes,
+        ]);
+
+        // Count stale assets with the same query used by the batch job.
+        $total = $job->staleAssetCount();
 
         if ($total === 0) {
             Craft::$app->getCache()->delete($this->runCacheKey());
@@ -122,10 +77,7 @@ class UtilitiesController extends Controller
             ]);
         }
 
-        $jobId = QueueHelper::push(new GenerateThumbhashBatch([
-            'volumes' => $volumes,
-            'assetIds' => $assetIds,
-        ]));
+        $jobId = QueueHelper::push($job);
 
         Craft::$app->getCache()->set($this->runCacheKey(), [
             'jobId' => (string)$jobId,
@@ -253,11 +205,56 @@ class UtilitiesController extends Controller
         $this->requireAcceptsJson();
         $this->requirePermission('utility:' . ThumbhashUtility::id());
 
-        $rows = Plugin::getInstance()->thumbhash->getUtilityPngRows();
-        $hashRows = Plugin::getInstance()->thumbhash->getUtilityHashRows();
+        /** @var Settings $settings */
+        $settings = Plugin::getInstance()->getSettings();
+        $service = Plugin::getInstance()->thumbhash;
+        $mode = strtolower((string)Craft::$app->getRequest()->getQueryParam('mode', 'auto'));
+        $sinceUpdatedAt = trim((string)Craft::$app->getRequest()->getQueryParam('sinceUpdatedAt', ''));
+        if ($sinceUpdatedAt === '') {
+            $sinceUpdatedAt = null;
+        }
+        $sinceAssetId = max(0, (int)Craft::$app->getRequest()->getQueryParam('sinceAssetId', 0));
+
+        $rows = [];
+        $hashRows = [];
+        $cursorUpdatedAt = null;
+        $cursorAssetId = 0;
+        $delta = $sinceUpdatedAt !== null;
+
+        if ($mode === 'hash') {
+            $snapshot = $service->getUtilityHashRowsSnapshot($sinceUpdatedAt, $sinceAssetId);
+            $hashRows = $snapshot['rows'];
+            $cursorUpdatedAt = $snapshot['cursorUpdatedAt'];
+            $cursorAssetId = $snapshot['cursorAssetId'];
+            $delta = (bool)$snapshot['delta'];
+        } elseif ($mode === 'png') {
+            $snapshot = $service->getUtilityPngRowsSnapshot($sinceUpdatedAt, $sinceAssetId);
+            $rows = $snapshot['rows'];
+            $cursorUpdatedAt = $snapshot['cursorUpdatedAt'];
+            $cursorAssetId = $snapshot['cursorAssetId'];
+            $delta = (bool)$snapshot['delta'];
+        } elseif ((bool)$settings->generateDataUrl) {
+            $mode = 'png';
+            $snapshot = $service->getUtilityPngRowsSnapshot($sinceUpdatedAt, $sinceAssetId);
+            $rows = $snapshot['rows'];
+            $cursorUpdatedAt = $snapshot['cursorUpdatedAt'];
+            $cursorAssetId = $snapshot['cursorAssetId'];
+            $delta = (bool)$snapshot['delta'];
+        } else {
+            $mode = 'hash';
+            $snapshot = $service->getUtilityHashRowsSnapshot($sinceUpdatedAt, $sinceAssetId);
+            $hashRows = $snapshot['rows'];
+            $cursorUpdatedAt = $snapshot['cursorUpdatedAt'];
+            $cursorAssetId = $snapshot['cursorAssetId'];
+            $delta = (bool)$snapshot['delta'];
+        }
 
         return $this->asJson([
             'success' => true,
+            'mode' => $mode,
+            'delta' => $delta,
+            'cursorUpdatedAt' => $cursorUpdatedAt,
+            'cursorAssetId' => $cursorAssetId,
             'rows' => $rows,
             'hashRows' => $hashRows,
         ]);

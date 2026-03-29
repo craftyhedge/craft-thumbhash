@@ -34,20 +34,20 @@
         <span id="thumbhash-grid-count">{{ displayCount }}</span>
     </p>
 
-    <div id="thumbhash-png-grid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)); gap: 6px;">
+    <div id="thumbhash-png-grid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(32px, 1fr)); gap: 3px;">
         {% for row in initialRows %}
             <div class="thumbhash-png-item" data-asset-id="{{ row.assetId }}" title="Asset #{{ row.assetId }}" style="display:block; width: 100%; aspect-ratio: 1 / 1;">
-                <img src="{{ row.dataUrl }}" alt="" loading="lazy" style="display:block; width:100%; height:100%; object-fit:cover; border-radius:4px;" />
+                <img src="{{ row.dataUrl }}" alt="" loading="lazy" style="display:block; width:100%; height:100%; object-fit:cover; border-radius:3px;" />
             </div>
         {% endfor %}
     </div>
 
     <div id="thumbhash-hash-list" class="{{ initialRows|length == 0 and initialHashRows|length ? '' : 'hidden' }}" style="margin-top: var(--s);">
         <p class="light" style="margin-top: 0; margin-bottom: var(--xs);">{{ 'Stored hashes:'|t('thumbhash') }}</p>
-        <ul style="margin: 0; padding-left: 1.2rem; max-height: 18rem; overflow:auto;">
+        <ul id="thumbhash-hash-items" style="margin: 0; padding-left: 1.2rem; max-height: 18rem; overflow:auto;">
             {% for row in initialHashRows %}
                 {% if row.hash %}
-                    <li style="margin-bottom: 2px;"><code>#{{ row.assetId }}: {{ row.hash }}</code></li>
+                    <li class="thumbhash-hash-item" data-asset-id="{{ row.assetId }}" style="margin-bottom: 2px;"><code>#{{ row.assetId }}: {{ row.hash }}</code></li>
                 {% endif %}
             {% endfor %}
         </ul>
@@ -71,12 +71,43 @@
     const $hashList = $('#thumbhash-hash-list');
     const $gridCount = $('#thumbhash-grid-count');
     const $empty = $('#thumbhash-assets-empty');
+    const prefersPngIndicator = {{ generateDataUrl ? 'true' : 'false' }};
 
     let runTotal = 0;
     let pollTimer = null;
     let pollRequestActive = false;
     let gridRequestActive = false;
     let frozenAssetOrder = $grid.find('[data-asset-id]').map((_, el) => String($(el).data('asset-id'))).get();
+    let activeIndicatorMode = $hashList.hasClass('hidden') ? 'png' : 'hash';
+
+    const indicatorState = {
+        png: {
+            initialized: false,
+            cursorUpdatedAt: null,
+            cursorAssetId: 0,
+        },
+        hash: {
+            initialized: false,
+            cursorUpdatedAt: null,
+            cursorAssetId: 0,
+        },
+    };
+
+    const pngNodeMap = new Map();
+    const hashNodeMap = new Map();
+
+    if (!prefersPngIndicator) {
+        activeIndicatorMode = 'hash';
+    }
+
+    const resetIndicatorState = () => {
+        indicatorState.png.initialized = false;
+        indicatorState.png.cursorUpdatedAt = null;
+        indicatorState.png.cursorAssetId = 0;
+        indicatorState.hash.initialized = false;
+        indicatorState.hash.cursorUpdatedAt = null;
+        indicatorState.hash.cursorAssetId = 0;
+    };
 
     const escapeHtml = (value) => {
         return String(value)
@@ -87,6 +118,39 @@
             .replaceAll("'", '&#39;');
     };
 
+    const ensureHashListSkeleton = () => {
+        let $hashItems = $hashList.find('#thumbhash-hash-items');
+
+        if ($hashItems.length > 0) {
+            return $hashItems;
+        }
+
+        $hashList.html(`
+            <p class="light" style="margin-top: 0; margin-bottom: var(--xs);">${Craft.t('thumbhash', 'Stored hashes:')}</p>
+            <ul id="thumbhash-hash-items" style="margin: 0; padding-left: 1.2rem; max-height: 18rem; overflow:auto;"></ul>
+        `);
+
+        $hashItems = $hashList.find('#thumbhash-hash-items');
+        return $hashItems;
+    };
+
+    const rebuildNodeMapsFromDom = () => {
+        pngNodeMap.clear();
+        hashNodeMap.clear();
+
+        $grid.find('.thumbhash-png-item[data-asset-id]').each((_, el) => {
+            const $el = $(el);
+            pngNodeMap.set(String($el.data('asset-id')), $el);
+        });
+
+        $hashList.find('.thumbhash-hash-item[data-asset-id]').each((_, el) => {
+            const $el = $(el);
+            hashNodeMap.set(String($el.data('asset-id')), $el);
+        });
+    };
+
+    rebuildNodeMapsFromDom();
+
     const renderSnapshot = (rows, hashRows) => {
         const pngRows = Array.isArray(rows) ? rows : [];
         const fallbackHashRows = Array.isArray(hashRows) ? hashRows : [];
@@ -96,6 +160,9 @@
             $hashList.addClass('hidden').html('');
             $gridCount.text('0');
             $empty.removeClass('hidden');
+            frozenAssetOrder = [];
+            activeIndicatorMode = prefersPngIndicator ? 'png' : 'hash';
+            rebuildNodeMapsFromDom();
             return {total: 0};
         }
 
@@ -105,17 +172,20 @@
                 .map((row) => {
                     const assetId = escapeHtml(String(row.assetId ?? ''));
                     const hash = escapeHtml(String(row.hash ?? ''));
-                    return `<li style="margin-bottom: 2px;"><code>#${assetId}: ${hash}</code></li>`;
+                    return `<li class="thumbhash-hash-item" data-asset-id="${assetId}" style="margin-bottom: 2px;"><code>#${assetId}: ${hash}</code></li>`;
                 })
                 .join('');
 
             $grid.html('');
+            frozenAssetOrder = [];
             $hashList.html(`
                 <p class="light" style="margin-top: 0; margin-bottom: var(--xs);">${Craft.t('thumbhash', 'Stored hashes:')}</p>
-                <ul style="margin: 0; padding-left: 1.2rem; max-height: 18rem; overflow:auto;">${hashHtml}</ul>
+                <ul id="thumbhash-hash-items" style="margin: 0; padding-left: 1.2rem; max-height: 18rem; overflow:auto;">${hashHtml}</ul>
             `).removeClass('hidden');
             $gridCount.text(String(fallbackHashRows.length));
             $empty.addClass('hidden');
+            activeIndicatorMode = 'hash';
+            rebuildNodeMapsFromDom();
             return {total: fallbackHashRows.length};
         }
 
@@ -160,13 +230,186 @@
         $hashList.addClass('hidden').html('');
         $gridCount.text(String(orderedRows.length));
         $empty.addClass('hidden');
+        activeIndicatorMode = 'png';
+        rebuildNodeMapsFromDom();
 
         return {
             total: orderedRows.length,
         };
     };
 
-    const loadGridRows = async () => {
+    const applyPngDelta = (rows) => {
+        const pngRows = Array.isArray(rows) ? rows : [];
+
+        if (pngRows.length === 0) {
+            return {total: pngNodeMap.size};
+        }
+
+        activeIndicatorMode = 'png';
+
+        pngRows.forEach((row) => {
+            const assetId = String(row?.assetId ?? '');
+            const encodedAssetId = escapeHtml(assetId);
+            const dataUrl = row?.dataUrl ? escapeHtml(String(row.dataUrl)) : '';
+
+            if (!assetId || !dataUrl) {
+                return;
+            }
+
+            const tileInner = `<img src="${dataUrl}" alt="" loading="lazy" style="display:block; width:100%; height:100%; object-fit:cover; border-radius:4px;" />`;
+            const $existing = pngNodeMap.get(assetId);
+
+            if ($existing) {
+                const $img = $existing.find('img');
+                if ($img.length > 0) {
+                    if ($img.attr('src') !== dataUrl) {
+                        $img.attr('src', dataUrl);
+                    }
+                } else {
+                    $existing.html(tileInner);
+                }
+
+                return;
+            }
+
+            const $node = $(`<div class="thumbhash-png-item" data-asset-id="${encodedAssetId}" title="Asset #${encodedAssetId}" style="display:block; width: 100%; aspect-ratio: 1 / 1;">${tileInner}</div>`);
+            $grid.append($node);
+            pngNodeMap.set(assetId, $node);
+
+            if (!frozenAssetOrder.includes(assetId)) {
+                frozenAssetOrder.push(assetId);
+            }
+        });
+
+        if (!$hashList.hasClass('hidden')) {
+            $hashList.addClass('hidden').html('');
+            hashNodeMap.clear();
+            indicatorState.hash.initialized = false;
+            indicatorState.hash.cursorUpdatedAt = null;
+            indicatorState.hash.cursorAssetId = 0;
+        }
+
+        $gridCount.text(String(pngNodeMap.size));
+        $empty.addClass('hidden');
+
+        return {total: pngNodeMap.size};
+    };
+
+    const applyHashDelta = (rows) => {
+        const hashRows = Array.isArray(rows) ? rows : [];
+
+        if (hashRows.length === 0) {
+            return {total: hashNodeMap.size};
+        }
+
+        activeIndicatorMode = 'hash';
+
+        if ($grid.children().length > 0) {
+            $grid.html('');
+            pngNodeMap.clear();
+            frozenAssetOrder = [];
+            indicatorState.png.initialized = false;
+            indicatorState.png.cursorUpdatedAt = null;
+            indicatorState.png.cursorAssetId = 0;
+        }
+
+        const $hashItems = ensureHashListSkeleton();
+
+        hashRows.forEach((row) => {
+            const assetId = String(row?.assetId ?? '');
+            const encodedAssetId = escapeHtml(assetId);
+            const hash = row?.hash ? escapeHtml(String(row.hash)) : '';
+
+            if (!assetId || !hash) {
+                return;
+            }
+
+            const $existing = hashNodeMap.get(assetId);
+            const innerHtml = `<code>#${encodedAssetId}: ${hash}</code>`;
+
+            if ($existing) {
+                $existing.html(innerHtml);
+                return;
+            }
+
+            const $node = $(`<li class="thumbhash-hash-item" data-asset-id="${encodedAssetId}" style="margin-bottom: 2px;">${innerHtml}</li>`);
+            $hashItems.append($node);
+            hashNodeMap.set(assetId, $node);
+        });
+
+        $hashList.removeClass('hidden');
+        $gridCount.text(String(hashNodeMap.size));
+        $empty.addClass('hidden');
+
+        return {total: hashNodeMap.size};
+    };
+
+    const normalizeIndicatorMode = (value, fallback = 'png') => {
+        const mode = String(value || '').toLowerCase();
+
+        if (mode === 'hash' || mode === 'png') {
+            return mode;
+        }
+
+        return fallback;
+    };
+
+    const updateIndicatorCursor = (mode, payload) => {
+        const state = indicatorState[mode];
+        const cursorUpdatedAt = String(payload?.cursorUpdatedAt || '').trim();
+        const cursorAssetId = Number(payload?.cursorAssetId || 0);
+
+        if (cursorUpdatedAt !== '') {
+            state.cursorUpdatedAt = cursorUpdatedAt;
+            state.cursorAssetId = Number.isFinite(cursorAssetId) && cursorAssetId > 0
+                ? Math.floor(cursorAssetId)
+                : 0;
+        } else if (!state.cursorUpdatedAt) {
+            state.cursorUpdatedAt = '1970-01-01 00:00:00';
+            state.cursorAssetId = 0;
+        }
+
+        state.initialized = true;
+    };
+
+    const requestGridRows = async (mode, { forceFull = false } = {}) => {
+        const normalizedMode = normalizeIndicatorMode(mode, prefersPngIndicator ? 'png' : 'hash');
+        const state = indicatorState[normalizedMode];
+        const data = {
+            _: Date.now(),
+            mode: normalizedMode,
+        };
+
+        if (!forceFull && state.initialized && state.cursorUpdatedAt) {
+            data.sinceUpdatedAt = state.cursorUpdatedAt;
+            data.sinceAssetId = state.cursorAssetId;
+        }
+
+        return Craft.sendActionRequest('GET', rowsAction, {
+            data,
+        });
+    };
+
+    const applyRowsResponse = (mode, payload) => {
+        const normalizedMode = normalizeIndicatorMode(mode, prefersPngIndicator ? 'png' : 'hash');
+        const isDelta = Boolean(payload?.delta);
+
+        if (normalizedMode === 'hash') {
+            if (isDelta) {
+                return applyHashDelta(payload?.hashRows || []);
+            }
+
+            return renderSnapshot([], payload?.hashRows || []);
+        }
+
+        if (isDelta) {
+            return applyPngDelta(payload?.rows || []);
+        }
+
+        return renderSnapshot(payload?.rows || [], []);
+    };
+
+    const loadGridRows = async ({ forceFull = false } = {}) => {
         if (gridRequestActive) {
             return;
         }
@@ -174,11 +417,27 @@
         try {
             gridRequestActive = true;
 
-            const response = await Craft.sendActionRequest('GET', rowsAction, {
-                data: { _: Date.now() },
-            });
+            let requestedMode = normalizeIndicatorMode(activeIndicatorMode, prefersPngIndicator ? 'png' : 'hash');
+            let response = await requestGridRows(requestedMode, { forceFull });
+            let responseMode = normalizeIndicatorMode(response.data?.mode, requestedMode);
+            let snapshot = applyRowsResponse(responseMode, response.data || {});
+            updateIndicatorCursor(responseMode, response.data || {});
+            activeIndicatorMode = responseMode;
 
-            return renderSnapshot(response.data?.rows || [], response.data?.hashRows || []);
+            if (responseMode === 'png' && snapshot?.total === 0) {
+                requestedMode = 'hash';
+                response = await requestGridRows(requestedMode, { forceFull });
+                responseMode = normalizeIndicatorMode(response.data?.mode, requestedMode);
+                snapshot = applyRowsResponse(responseMode, response.data || {});
+                updateIndicatorCursor(responseMode, response.data || {});
+                activeIndicatorMode = responseMode;
+
+                if (prefersPngIndicator && responseMode === 'hash' && (snapshot?.total || 0) === 0) {
+                    activeIndicatorMode = 'png';
+                }
+            }
+
+            return snapshot;
         } catch (error) {
             // Ignore transient grid refresh errors while polling.
             return null;
@@ -253,8 +512,6 @@
                 const hasRun = Boolean(run.hasRun);
                 const runState = String(run.state || (hasRun ? 'running' : 'idle'));
                 const runError = String(run.error || '');
-                runTotal = Number(run.total ?? 0);
-                const processedCount = Number(run.processed ?? 0);
 
                 await loadGridRows();
 
@@ -273,11 +530,13 @@
                     return;
                 }
 
-                const runComplete = runState === 'completed' || (runTotal > 0 && processedCount >= runTotal);
+                const runComplete = runState === 'completed';
                 if (runComplete) {
+                    await loadGridRows({ forceFull: true });
                     stopPolling();
                     setButtonEnabled(true);
-                    window.location.reload();
+                    $status.text(Craft.t('thumbhash', 'Processing complete.'));
+                    return;
                 }
             } catch (error) {
                 stopPolling();
@@ -348,6 +607,8 @@
             const deleted = Number(response.data?.deleted || 0);
             $status.text(Craft.t('thumbhash', 'Cleared {count} records.', { count: deleted }));
             frozenAssetOrder = [];
+            resetIndicatorState();
+            activeIndicatorMode = prefersPngIndicator ? 'png' : 'hash';
             await loadGridRows();
         } catch (error) {
             $status.text(Craft.t('thumbhash', 'Could not clear thumbhash records.'));
