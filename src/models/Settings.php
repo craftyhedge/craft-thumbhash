@@ -110,7 +110,7 @@ class Settings extends Model
     /**
      * Maximum concurrent HTTP connections during batch prefetch.
      */
-    public int $fetchConcurrency = 10;
+    public int $fetchConcurrency = 3;
 
     public function defineRules(): array
     {

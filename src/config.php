@@ -94,8 +94,8 @@ return [
     // 'transformFetchReadTimeout' => 10.0,
 
     // Maximum concurrent HTTP connections during batch prefetch.
-    // Users on local (non-CDN) transforms may benefit from a lower value (3–5)
-    // to avoid overwhelming Imagick with simultaneous transform generation.
-    // Default: 10
-    // 'fetchConcurrency' => 10,
+    // Users on CDN-backed transforms (e.g. Imgix) may benefit from a higher
+    // value (8–10) to speed up batch prefetch.
+    // Default: 3
+    // 'fetchConcurrency' => 3,
 ];

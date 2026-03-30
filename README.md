@@ -323,7 +323,7 @@ Now ThumbHash and all you CP images will use the Imgix source for transforms.
 
 When generating thumbhashes for large batches of assets, the plugin needs to fetch many transformed images. The `fetchConcurrency` setting controls how many HTTP requests it will make in parallel during this prefetch step.
 
-This is where a transform service like Imigix that allows concurrent requests really shines. With a high `fetchConcurrency` (e.g. 10), you can fetch many transforms at once and keep the generation process moving quickly. With a lower concurrency (e.g. 3-5), you can avoid overwhelming your server if you are using local transforms.
+The default concurrency is 3, which is conservative and safe for local transforms. If you use a CDN-backed transform service like Imgix that handles concurrent requests well, you can increase `fetchConcurrency` (e.g. 8–10) to speed up batch prefetch significantly.
 
 The difference with Imgix and 10 concurrent fetches on 100s or 1000s of assets can be dramatic.
 
