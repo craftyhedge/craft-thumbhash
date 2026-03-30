@@ -36,7 +36,7 @@
     {% endembed %}
     <div id="thumbhash-info-panel" class="pane" style="margin-top: var(--s); max-width: 700px;">
         <div>
-            <p>{{ '<strong>Generate</strong> scans every image asset and creates a compact thumbhash for each one. Images that already have a hash are skipped.'|t('thumbhash')|raw }}</p>
+            <p>{{ '<strong>Generate</strong> scans configured asset volumes and creates a compact thumbhash for each valid asset. Assets that already have a hash are skipped.'|t('thumbhash')|raw }}</p>
             <p>{{ '<strong>Clear All</strong> removes every stored thumbhash from the database. Templates using <code>thumbhash()</code> and <code>thumbhashDataUrl()</code> will return empty values until you regenerate.'|t('thumbhash')|raw }}</p>
             <p>{{ 'If your site uses static caching and has a small number of images, clearing and regenerating is fine. For large image libraries, non-cached sites, or local transforms, maybe best to wait for a low-traffic window.'|t('thumbhash') }}</p>
             <p>{{ 'They are just placeholders but depending on your system setup could take some time to process.'|t('thumbhash') }}</p>
