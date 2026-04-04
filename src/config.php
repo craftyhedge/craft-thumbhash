@@ -63,7 +63,14 @@ return [
     //     'width' => 100,
     // ],
 
-    // CSS styles applied automatically when using `data-thumbhash-bg`.
+    // Default render method for the client-side decoder: 'bg', 'picture', or 'img'.
+    // 'bg' sets the thumbhash as background-image, 'img' sets it as the src,
+    // 'picture' propagates the hash to child <source> and <img> elements.
+    // Can be overridden per-element with data-thumbhash-render="bg|picture|img".
+    // Default: 'bg'
+    // 'renderMethod' => 'bg',
+
+    // CSS styles applied automatically when using the 'bg' render method.
     // Set to an empty array to disable the auto-applied background styles.
     // Default: no-repeat / cover / center
     // 'backgroundPlaceholderStyles' => [
@@ -71,6 +78,11 @@ return [
     //     'backgroundSize' => 'cover',
     //     'backgroundPosition' => 'center',
     // ],
+
+    // Position of the inline thumbhash decoder script: 'head' or 'end'.
+    // 'head' registers in <head>, 'end' registers before </body>.
+    // Default: 'head'
+    // 'scriptPosition' => 'head',
 
     // Include debug-level plugin logs when dev mode is enabled.
     // Default: false

@@ -10,15 +10,18 @@
  *
  * Usage:
  *   <img data-thumbhash="BASE64_HASH" data-src="real-image.jpg" alt="..." />
- *   <div data-thumbhash-bg="BASE64_HASH"></div>
+ *   <picture data-thumbhash="BASE64_HASH">
+ *     <source data-srcset="large.webp" type="image/webp" />
+ *     <img data-src="fallback.jpg" alt="..." />
+ *   </picture>
+ *   <div data-thumbhash="BASE64_HASH" data-thumbhash-render="bg"></div>
  *
- * The script will:
- * 1. Decode the thumbhash to a tiny PNG data URL
- * 2. Set it as the src of the element or as background-image when data-thumbhash-bg is present
- * 3. Observe DOM mutations for dynamically added elements
+ * Render method resolution:
+ * 1. Per-element: data-thumbhash-render="bg|picture|img"
+ * 2. Global fallback: window.thumbhashConfig.renderMethod (default "bg")
  *
- * Your lazy loading library (lazysizes, lozad, etc.) handles swapping
- * data-src → src when the element enters the viewport.
+ * With render="picture", the hash is propagated to child <source> (srcset)
+ * and <img> (src) elements inside the parent element.
  *
  * Also exposes window.thumbhash.toDataURL(base64Hash) for manual use.
  */
@@ -47,6 +50,103 @@
         }
     }
 
+    function isFiniteNumber(value) {
+        return typeof value === 'number' && isFinite(value);
+    }
+
+    var PLACEHOLDER_LONG_SIDE = 32;
+
+    function normalizePositiveNumber(value) {
+        var numeric = Number(value);
+        return isFiniteNumber(numeric) && numeric > 0 ? numeric : 0;
+    }
+
+    function getElementAspectRatio(el) {
+        var width = normalizePositiveNumber(el.getAttribute('width'));
+        var height = normalizePositiveNumber(el.getAttribute('height'));
+        if (!width || !height) {
+            return 0;
+        }
+        return width / height;
+    }
+
+    function getBackgroundAspectRatio(el) {
+        var ratio = getElementAspectRatio(el);
+        if (ratio) {
+            return ratio;
+        }
+
+        if (!el.querySelectorAll) {
+            return 0;
+        }
+
+        var images = el.querySelectorAll('img');
+        for (var i = 0; i < images.length; i++) {
+            ratio = getElementAspectRatio(images[i]);
+            if (ratio) {
+                return ratio;
+            }
+        }
+
+        return 0;
+    }
+
+    function cropAndResizeRGBA(image, targetRatio) {
+        if (!targetRatio) {
+            return image;
+        }
+
+        var targetW = targetRatio >= 1
+            ? PLACEHOLDER_LONG_SIDE
+            : Math.max(1, Math.round(PLACEHOLDER_LONG_SIDE * targetRatio));
+        var targetH = targetRatio >= 1
+            ? Math.max(1, Math.round(PLACEHOLDER_LONG_SIDE / targetRatio))
+            : PLACEHOLDER_LONG_SIDE;
+
+        var sourceRatio = image.w / image.h;
+        var cropX = 0;
+        var cropY = 0;
+        var cropW = image.w;
+        var cropH = image.h;
+
+        if (sourceRatio > targetRatio) {
+            cropW = Math.max(1, Math.round(cropH * targetRatio));
+            cropX = (image.w - cropW) / 2;
+        } else if (sourceRatio < targetRatio) {
+            cropH = Math.max(1, Math.round(cropW / targetRatio));
+            cropY = (image.h - cropH) / 2;
+        }
+
+        var out = new Uint8Array(targetW * targetH * 4);
+        for (var y = 0; y < targetH; y++) {
+            var sy = Math.max(0, Math.min(image.h - 1, cropY + (y + 0.5) * cropH / targetH - 0.5));
+            var y0 = Math.floor(sy);
+            var y1 = Math.min(image.h - 1, y0 + 1);
+            var wy = sy - y0;
+
+            for (var x = 0; x < targetW; x++) {
+                var sx = Math.max(0, Math.min(image.w - 1, cropX + (x + 0.5) * cropW / targetW - 0.5));
+                var x0 = Math.floor(sx);
+                var x1 = Math.min(image.w - 1, x0 + 1);
+                var wx = sx - x0;
+
+                var i00 = (y0 * image.w + x0) * 4;
+                var i10 = (y0 * image.w + x1) * 4;
+                var i01 = (y1 * image.w + x0) * 4;
+                var i11 = (y1 * image.w + x1) * 4;
+                var dstIndex = (y * targetW + x) * 4;
+
+                for (var c = 0; c < 4; c++) {
+                    var top = image.rgba[i00 + c] + (image.rgba[i10 + c] - image.rgba[i00 + c]) * wx;
+                    var bottom = image.rgba[i01 + c] + (image.rgba[i11 + c] - image.rgba[i01 + c]) * wx;
+                    out[dstIndex + c] = Math.round(top + (bottom - top) * wy);
+                }
+            }
+        }
+
+        return { w: targetW, h: targetH, rgba: out };
+    }
+
     // ---- thumbHashToRGBA (from evanw/thumbhash, MIT) ----
     function thumbHashToRGBA(hash) {
         if (!hash || hash.length < 5) throw new Error('Invalid ThumbHash');
@@ -63,8 +163,10 @@
         var p_scale = ((header16 >> 3) & 63) / 63;
         var q_scale = ((header16 >> 9) & 63) / 63;
         var isLandscape = header16 >> 15;
-        var lx = max(3, isLandscape ? (hasAlpha ? 5 : 7) : (header16 & 7));
-        var ly = max(3, isLandscape ? (header16 & 7) : (hasAlpha ? 5 : 7));
+        var lx_raw = isLandscape ? (hasAlpha ? 5 : 7) : (header16 & 7);
+        var ly_raw = isLandscape ? (header16 & 7) : (hasAlpha ? 5 : 7);
+        var lx = max(3, lx_raw);
+        var ly = max(3, ly_raw);
         var a_dc = hasAlpha ? (hash[5] & 15) / 15 : 1;
         var a_scale = (hash[5] >> 4) / 15;
 
@@ -91,13 +193,22 @@
         var a_ac = hasAlpha ? decodeChannel(5, 5, a_scale) : null;
 
         // Decode using the DCT into RGB
-        var ratio = thumbHashToApproximateAspectRatio(hash);
+        var ratio = lx_raw / ly_raw;
         var w = round(ratio > 1 ? 32 : 32 * ratio);
         var h = round(ratio > 1 ? 32 / ratio : 32);
         var rgba = new Uint8Array(w * h * 4);
-        var fx = [], fy = [];
+        var fx, fy = [];
         var n = max(lx, hasAlpha ? 5 : 3);
         var n2 = max(ly, hasAlpha ? 5 : 3);
+
+        // Precompute fx table (depends only on x, reused across all rows)
+        var fxTable = new Array(w);
+        for (var x = 0; x < w; x++) {
+            fxTable[x] = new Array(n);
+            for (var cx = 0; cx < n; cx++) {
+                fxTable[x][cx] = cos(PI / w * (x + 0.5) * cx);
+            }
+        }
 
         for (var y = 0, i = 0; y < h; y++) {
             // Precompute fy once per row (depends only on y)
@@ -106,11 +217,7 @@
             }
             for (var x = 0; x < w; x++, i += 4) {
                 var l = l_dc, p = p_dc, q = q_dc, a = a_dc;
-
-                // Precompute fx per column
-                for (var cx = 0; cx < n; cx++) {
-                    fx[cx] = cos(PI / w * (x + 0.5) * cx);
-                }
+                fx = fxTable[x];
 
                 // Decode L
                 for (var cy = 0, j = 0; cy < ly; cy++) {
@@ -144,20 +251,12 @@
                 rgba[i] = max(0, 255 * min(1, r));
                 rgba[i + 1] = max(0, 255 * min(1, g));
                 rgba[i + 2] = max(0, 255 * min(1, b));
+
                 rgba[i + 3] = max(0, 255 * min(1, a));
             }
         }
 
         return { w: w, h: h, rgba: rgba };
-    }
-
-    function thumbHashToApproximateAspectRatio(hash) {
-        var header = hash[3];
-        var hasAlpha = hash[2] & 0x80;
-        var isLandscape = hash[4] & 0x80;
-        var lx = isLandscape ? (hasAlpha ? 5 : 7) : (header & 7);
-        var ly = isLandscape ? (header & 7) : (hasAlpha ? 5 : 7);
-        return lx / ly;
     }
 
     // ---- rgbaToDataURL (from evanw/thumbhash, MIT) ----
@@ -208,8 +307,12 @@
     }
 
     // ---- ThumbHash to Data URL convenience ----
-    function thumbHashToDataURL(hash) {
+    function thumbHashToDataURL(hash, targetRatio) {
         var image = thumbHashToRGBA(hash);
+        var ratio = normalizePositiveNumber(targetRatio);
+        if (ratio) {
+            image = cropAndResizeRGBA(image, ratio);
+        }
         return rgbaToDataURL(image.w, image.h, image.rgba);
     }
 
@@ -224,68 +327,99 @@
     }
 
     // ---- Decode cache (avoids re-decoding same hash on multiple elements) ----
+    var hashBytesCache = {};
     var decodeCache = {};
 
-    function cachedToDataURL(base64Hash) {
-        if (decodeCache[base64Hash]) return decodeCache[base64Hash];
+    function cachedHashBytes(base64Hash) {
+        if (hashBytesCache[base64Hash]) return hashBytesCache[base64Hash];
         var hashBytes = base64ToUint8Array(base64Hash);
-        var dataUrl = thumbHashToDataURL(hashBytes);
-        decodeCache[base64Hash] = dataUrl;
+        hashBytesCache[base64Hash] = hashBytes;
+        return hashBytes;
+    }
+
+    function decodeCacheKey(base64Hash, targetRatio) {
+        var ratio = normalizePositiveNumber(targetRatio);
+        return ratio ? base64Hash + '|' + ratio.toFixed(6) : base64Hash;
+    }
+
+    function cachedToDataURL(base64Hash, targetRatio) {
+        var key = decodeCacheKey(base64Hash, targetRatio);
+        if (decodeCache[key]) return decodeCache[key];
+        var dataUrl = thumbHashToDataURL(cachedHashBytes(base64Hash), targetRatio);
+        decodeCache[key] = dataUrl;
         return dataUrl;
     }
 
     // ---- Public API ----
     window.thumbhash = {
-        toDataURL: function (base64Hash) {
-            return cachedToDataURL(base64Hash);
+        toDataURL: function (base64Hash, targetRatio) {
+            return cachedToDataURL(base64Hash, targetRatio);
         },
         toBackgroundImage: function (base64Hash) {
             return 'url("' + cachedToDataURL(base64Hash) + '")';
         },
     };
 
-    function getThumbhashValue(el) {
-        var hashStr = el.dataset.thumbhash;
-        if (hashStr) {
-            return hashStr;
+    // ---- Render method resolution ----
+    function getRenderMethod(el) {
+        var perElement = el.getAttribute('data-thumbhash-render');
+        if (perElement) {
+            return perElement;
         }
-
-        var backgroundHashStr = el.getAttribute('data-thumbhash-bg');
-        if (backgroundHashStr) {
-            return backgroundHashStr;
-        }
-
-        return '';
+        return config.renderMethod || 'bg';
     }
 
-    function setElementPlaceholder(el, dataUrl) {
-        if (el.hasAttribute('data-thumbhash-bg')) {
-            el.style.backgroundImage = 'url("' + dataUrl + '")';
-            applyInlineStyles(el, getBackgroundPlaceholderStyles());
-            return;
-        }
+    function applyBackground(el, dataUrl) {
+        el.style.backgroundImage = 'url("' + dataUrl + '")';
+        applyInlineStyles(el, getBackgroundPlaceholderStyles());
+    }
 
-        if ('src' in el) {
-            el.src = dataUrl;
+    function applyChildPlaceholder(child, dataUrl) {
+        if (child.tagName === 'SOURCE') {
+            child.srcset = dataUrl;
+        } else if ('src' in child) {
+            child.src = dataUrl;
         }
     }
 
     // ---- Process a single element ----
     function processElement(el) {
-        if (el.dataset.thumbhashProcessed) return;
+        if (el.dataset.thumbhashReady) return;
 
-        var hashStr = getThumbhashValue(el);
+        var hashStr = el.dataset.thumbhash;
         if (!hashStr) return;
 
-        el.dataset.thumbhashProcessed = '1';
+        el.dataset.thumbhashReady = '1';
 
         try {
-            var dataUrl = window.thumbhash.toDataURL(hashStr);
+            var method = getRenderMethod(el);
 
-            // Set decoded placeholder as src or background-image (LQIP)
-            setElementPlaceholder(el, dataUrl);
+            if (method === 'picture') {
+                var children = el.querySelectorAll('source[data-srcset], img');
+                for (var i = 0; i < children.length; i++) {
+                    var child = children[i];
+                    var ratio = getElementAspectRatio(child);
+                    var dataUrl = window.thumbhash.toDataURL(hashStr, ratio);
+                    applyChildPlaceholder(child, dataUrl);
+                }
+            } else if (method === 'img') {
+                var ratio = getElementAspectRatio(el);
+                var dataUrl = window.thumbhash.toDataURL(hashStr, ratio);
+                applyChildPlaceholder(el, dataUrl);
+            } else {
+                var ratio = getBackgroundAspectRatio(el);
+                var dataUrl = window.thumbhash.toDataURL(hashStr, ratio);
+                applyBackground(el, dataUrl);
+            }
         } catch (e) {
             // Silently fail — don't break the page for a placeholder
+        }
+    }
+
+    function initAll() {
+        var elements = document.querySelectorAll('[data-thumbhash]:not([data-thumbhash-ready])');
+        for (var i = 0; i < elements.length; i++) {
+            processElement(elements[i]);
         }
     }
 
@@ -293,20 +427,23 @@
     function observeDOM() {
         if (!('MutationObserver' in window)) return;
 
+        var selector = '[data-thumbhash]:not([data-thumbhash-ready])';
+
         var domObserver = new MutationObserver(function (mutations) {
             for (var i = 0; i < mutations.length; i++) {
                 var added = mutations[i].addedNodes;
                 for (var j = 0; j < added.length; j++) {
                     var node = added[j];
-                    if (node.nodeType === 1) {
-                        if (node.hasAttribute && (node.hasAttribute('data-thumbhash') || node.hasAttribute('data-thumbhash-bg'))) {
-                            processElement(node);
-                        }
-                        if (node.querySelectorAll) {
-                            var children = node.querySelectorAll('[data-thumbhash]:not([data-thumbhash-processed]), [data-thumbhash-bg]:not([data-thumbhash-processed])');
-                            for (var k = 0; k < children.length; k++) {
-                                processElement(children[k]);
-                            }
+                    if (node.nodeType !== 1) continue;
+
+                    if (node.hasAttribute && node.hasAttribute('data-thumbhash')) {
+                        processElement(node);
+                    }
+
+                    if (node.querySelectorAll) {
+                        var matches = node.querySelectorAll(selector);
+                        for (var k = 0; k < matches.length; k++) {
+                            processElement(matches[k]);
                         }
                     }
                 }

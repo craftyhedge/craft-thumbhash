@@ -72,6 +72,12 @@ class Settings extends Model
     ];
 
     /**
+     * Default render method for the client-side thumbhash decoder: `'bg'`, `'picture'`, or `'img'`.
+     * Can be overridden per-element with `data-thumbhash-render`.
+     */
+    public string $renderMethod = 'bg';
+
+    /**
      * CSS styles applied automatically when `data-thumbhash-bg` is used.
      *
      * @var array<string, string>
@@ -81,6 +87,11 @@ class Settings extends Model
         'backgroundSize' => 'cover',
         'backgroundPosition' => 'center',
     ];
+
+    /**
+     * Position of the inline thumbhash script: `'head'` or `'end'`.
+     */
+    public string $scriptPosition = 'head';
 
     /**
      * Whether to include debug-level plugin logs in dev mode.
@@ -116,6 +127,8 @@ class Settings extends Model
     {
         $rules = parent::defineRules();
         $rules[] = ['fetchConcurrency', 'integer', 'min' => 1, 'max' => 50];
+        $rules[] = ['scriptPosition', 'in', 'range' => ['head', 'end']];
+        $rules[] = ['renderMethod', 'in', 'range' => ['bg', 'picture', 'img']];
 
         return $rules;
     }
