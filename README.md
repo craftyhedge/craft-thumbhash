@@ -2,6 +2,23 @@
 
 Automatic thumbhash placeholder generation for Craft CMS image assets.
 
+## Table of Contents
+
+- [What is ThumbHash?](#what-is-thumbhash)
+- [Example](#example)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Basic Usage](#basic-usage)
+- [Rendering](#rendering)
+- [Configuration](#configuration)
+- [Performance & Scaling](#performance--scaling)
+- [Control Panel Features](#control-panel-features)
+- [CLI & Maintenance](#cli--maintenance)
+- [Reference](#reference)
+- [Notes](#notes)
+- [Logging](#logging)
+- [License](#license)
+
 ## What is ThumbHash?
 
 ThumbHash is a tiny visual fingerprint of an image — a ~28-byte base64 string that captures the overall color and structure. This plugin generates those hashes on the backend and ships a small client-side JS decoder that turns each hash into a PNG placeholder right in the browser.
@@ -27,7 +44,7 @@ For regular websites, the JS decoder is the recommended approach — it keeps pe
 
 ## Example
 
-ThumbHash placeholders retain accurate colours and smooth gradients. To achieve the same results with blurred transformed placeholders means a larger payload and many extra requests.
+ThumbHash placeholders retain accurate colors and smooth gradients. To achieve the same results with blurred transformed placeholders means a larger payload and many extra requests.
 
 Check it out - [ThumbHash Example](https://craftyhedge.github.io/thumbhash-example/)
 
@@ -40,12 +57,10 @@ Check it out - [ThumbHash Example](https://craftyhedge.github.io/thumbhash-examp
 
 Photo by <a href="https://unsplash.com/@sanjeevan_s?utm_source=unsplash&utm_medium=referral&utm_content=creditCopyText">Sanjeevan  SatheesKumar</a> on <a href="https://unsplash.com/photos/tree-surrounded-by-grass-MG8c-4n1QVE?utm_source=unsplash&utm_medium=referral&utm_content=creditCopyText">Unsplash</a>
 
-
 ## Requirements
 
 - Craft CMS 5.0+
 - PHP 8.2+
-
 
 ## Installation
 
@@ -54,9 +69,9 @@ composer require craftyhedge/craft-thumbhash
 php craft plugin/install thumbhash
 ```
 
-## Usage
+## Basic Usage
 
-### Twig Templates
+> **Note:** The inline script `{{ thumbhashScript() }}` must be included on any page where you want placeholders to render unless using the No-JS option. 
 
 The decoder script decodes each hash to a tiny PNG data URL and applies it according to the render method (`bg`, `img`, or `picture`; default is `bg`).
 The script is inlined (no extra HTTP request). By default it is registered in `<head>` (configurable via `scriptPosition`), which allows the MutationObserver to start before `<body>` elements are parsed so placeholders appear as the DOM is built rather than after.
@@ -77,22 +92,9 @@ For `<img>` placeholders written directly to `src`, either set `data-thumbhash-r
 <img data-thumbhash="{{ hash }}" data-thumbhash-render="img" data-src="{{ asset.url }}" alt="{{ asset.title }}" width="{{ asset.width }}" height="{{ asset.height }}" />
 ```
 
-#### Picture Element Support
+## Rendering
 
-The decoder also supports `<picture>` elements with multiple `<source>` children. When `data-thumbhash` is placed on a `<picture>` with `data-thumbhash-render="picture"`, the decoder propagates the hash to child `<source data-srcset>` and `<img>` elements so each gets its own placeholder.
-
-The placeholder ratio is derived from the `width` and `height` attributes on each element, so you can have different aspect ratios for each breakpoint if needed. If no valid dimensions are found, the decoder falls back to the ThumbHash's native decoded dimensions (no ratio crop/resize).
-
-```twig
-<picture data-thumbhash="3OcRJYB4d3h/iIeHeEh3eIhw+j2w" data-thumbhash-render="picture">
-    <source data-srcset="hero-lg.webp" media="(min-width: 1024px)" width="1200" height="800">
-    <source data-srcset="hero-md.webp" media="(max-width: 1023px)" width="800" height="600">
-
-    <img data-srcset="hero-sm.webp" alt="Mountain view" width="600" height="400" class="lazyload">
-</picture>
-```
-
-#### Background Image Support
+### Background Image Support
 
 Pass the hash with `data-thumbhash` and set `data-thumbhash-render="bg"` (or rely on the global default). The decoder will populate `style.backgroundImage` and apply the configured background placeholder styles for you. By default that is `background-repeat: no-repeat`, `background-size: cover`, and `background-position: center`.
 
@@ -109,17 +111,95 @@ Pass the hash with `data-thumbhash` and set `data-thumbhash-render="bg"` (or rel
 </div>
 ```
 
- Use `src="{{ thumbhashTransparentSvg() }}"` when using background mode. This prevents empty `src` violations and native browser 'no image' placeholders.
+Use `src="{{ thumbhashTransparentSvg() }}"` when using background mode. This prevents empty `src` violations and native browser 'no image' placeholders.
 
-#### What should you use?
+### Picture Element Support
 
-| Method | Best for |
+The decoder also supports `<picture>` elements with multiple `<source>` children. When `data-thumbhash` is placed on a `<picture>` with `data-thumbhash-render="picture"`, the decoder propagates the hash to child `<source data-srcset>` and `<img>` elements so each gets its own placeholder.
+
+The placeholder ratio is derived from the `width` and `height` attributes on each element, so you can have different aspect ratios for each breakpoint if needed. If no valid dimensions are found, the decoder falls back to the ThumbHash's native decoded dimensions (no ratio crop/resize).
+
+```twig
+<picture data-thumbhash="3OcRJYB4d3h/iIeHeEh3eIhw+j2w" data-thumbhash-render="picture">
+    <source data-srcset="hero-lg.webp" media="(min-width: 1024px)" width="1200" height="800">
+    <source data-srcset="hero-md.webp" media="(max-width: 1023px)" width="800" height="600">
+
+    <img data-srcset="hero-sm.webp" alt="Mountain view" width="600" height="400" class="lazyload">
+</picture>
+```
+
+### What should you use?
+
+| MeChoosing a Render Method
 |---|---|
 | `bg` | Most use cases (recommended default) |
 | `picture` | Responsive images with multiple sources/aspect ratios |
 | `img` | Single images without responsive breakpoints |
 
-#### Dimension behavior
+### Fallback vs. Explicit Rendering
+
+Choose one of these patterns depending on how much per-element control you need.
+
+**Approach A: Explicit per element (recommended for mixed projects)**
+
+Set `data-thumbhash-render` on each element (or wrapper) so your CSS can branch safely by mode.
+
+```twig
+{% set hash = thumbhash(asset) %}
+
+{# bg mode on a wrapper #}
+<div class="img-wrapper" data-thumbhash="{{ hash }}" data-thumbhash-render="bg">
+    <img
+        src="{{ thumbhashTransparentSvg() }}"
+        data-src="{{ asset.url }}"
+        alt="{{ asset.title }}"
+        width="{{ asset.width }}"
+        height="{{ asset.height }}"
+        class="lazyload"
+    />
+</div>
+
+{# img mode on the image itself #}
+<img
+    class="img-wrapper lazyload"
+    data-thumbhash="{{ hash }}"
+    data-thumbhash-render="img"
+    data-src="{{ asset.url }}"
+    alt="{{ asset.title }}"
+    width="{{ asset.width }}"
+    height="{{ asset.height }}"
+/>
+```
+
+**Approach B: Config fallback (minimal markup)**
+
+Omit `data-thumbhash-render` and let the plugin-wide `renderMethod` config decide mode.
+
+```twig
+{% set hash = thumbhash(asset) %}
+
+<div class="img-wrapper" data-thumbhash="{{ hash }}">
+    <img
+        src="{{ thumbhashTransparentSvg() }}"
+        data-src="{{ asset.url }}"
+        alt="{{ asset.title }}"
+        width="{{ asset.width }}"
+        height="{{ asset.height }}"
+        class="lazyload"
+    />
+</div>
+```
+
+In this fallback approach, CSS cannot infer the active mode from element attributes alone. Use mode-agnostic CSS or add a global page class that mirrors your configured default mode.
+
+```php
+return [
+    // ...
+    'renderMethod' => 'bg', // or 'img' or 'picture'
+];
+``` 
+
+### Dimension Behavior
 
 Placeholders are cropped/resized to match the aspect ratio from `width`/`height` attributes — include those for best results.
 
@@ -145,88 +225,31 @@ For the no JS decoding option, you can use `thumbhashDataUrl()` to get the decod
     />
 </div>
 ```
-Recommended for use as background images. The backend decoder sets the png ratio to the source image dimensions not the rendered element dimensions.
+Recommended for use as background images. The backend decoder sets the png ratio to the source image dimensions, not the rendered element dimensions.
 Depending on your styling it may cause layout shift. For example, if you use `aspect-ratio` or fixed dimensions on the element, the placeholder will be sized to the rendered dimensions and won't cause shift. If you use `width: 100%` and variable height based on image content, the placeholder will be sized to the source image dimensions and may cause shift until the full image loads.
-
 
 ### CSS for Smooth Lazyloading Class Swaps
 
 `.img-wrapper` is just an example wrapper class for your image elements, adjust as needed for your markup. This could be a `picture` element.
 
+If you are mixing modes, prefer explicit `data-thumbhash-render` attributes and use mode-aware CSS:
+
 ```css
-.img-wrapper[data-thumbhash] img.lazyload,
-.img-wrapper[data-thumbhash] img.lazyloading {
+/* Only hide the real image while loading when placeholder is on container background */
+.img-wrapper[data-thumbhash][data-thumbhash-render="bg"] img.lazyload,
+.img-wrapper[data-thumbhash][data-thumbhash-render="bg"] img.lazyloading {
     opacity: 0;
 }
 
-.img-wrapper[data-thumbhash] img.lazyloaded {
-    animation: lazy-image-fade-in 130ms cubic-bezier(0.2, 0, 0, 1);
+.img-wrapper[data-thumbhash][data-thumbhash-render="bg"] img.lazyloaded {
+    animation: lazy-image-fade-in 130ms cubic-bezier(0.2, 0, 0, 1) both;
 }
 
 @keyframes lazy-image-fade-in {
-    from {
-        opacity: 0;
-    }
-
-    to {
-        opacity: 1;
-    }
+    from { opacity: 0; }
+    to { opacity: 1; }
 }
 ```
-
-### Template Functions
-
-| Function | Description |
-|---|---|
-| `thumbhash(asset)` | Returns the base64 thumbhash string for an asset, or `null` |
-| `thumbhashDataUrl(asset)` | Returns the thumbhash decoded as a PNG data URL, or `null` |
-| `thumbhashTransparentSvg(width = 4, height = 4)` | Returns a transparent SVG placeholder data URL |
-| `thumbhashScript()` | Registers the client-side decoder (position controlled by `scriptPosition` setting) |
-
-### Control Panel
-
-For supported image assets, the plugin also surfaces ThumbHash data in the Craft control panel:
-
-- Asset details show a `ThumbHash` metadata field with the stored hash string.
-- Asset details show a `#PNG` metadata preview when a PNG data URL is available.
-- The Assets index gets a `#PNG` preview column by default when `generateDataUrl` is enabled.
-
-### Control Panel Utility
-
-The plugin also adds a `Utilities -> ThumbHash` utility panel for maintenance tasks:
-
-- Queue generation for missing or modified image assets.
-- Preview stored PNG placeholders across assets.
-- Clear all stored thumbhash records.
-
-<img width="620px" height="340px" src="assets/thumbhash-panel.png" alt="ThumbHash control panel utility showing the PNG preview grid and generation tools" />
-
-### JavaScript API
-
-The decoder exposes a global API for manual use:
-
-This API mirrors the default ThumbHash browser encoder. It does not use the plugin's server-side compressed PNG generation path.
-
-- Scope: `window.thumbhash` is a browser global and only exists on pages where `thumbhashScript()` is included.
-- Availability: it is available to any frontend JavaScript (vanilla JS, Alpine, React, Vue, etc.) after the decoder script has loaded.
-- Not available in PHP or CLI contexts.
-
-Example:
-
-```js
-// Decode a base64 thumbhash to a data URL
-var dataUrl = window.thumbhash.toDataURL('BASE64_HASH');
-
-// Or get a CSS background-image value
-var backgroundImage = window.thumbhash.toBackgroundImage('BASE64_HASH');
-
-// Optional second arg: target aspect ratio (width / height)
-// Example: crop/resize placeholder to 16:9
-var dataUrl16x9 = window.thumbhash.toDataURL('BASE64_HASH', 16 / 9);
-```
-
-If no valid target ratio is available, `toDataURL()` returns the placeholder at the ThumbHash's native decoded dimensions.
-
 
 ## Configuration
 
@@ -274,7 +297,9 @@ return [
 ];
 ```
 
-## Transform Source
+## Performance & Scaling
+
+### Transform Source
 
 For the best server performance, it is recommended to use an external transform service like Imgix or Cloudflare Images.
 
@@ -298,13 +323,9 @@ return [
 ```
 Now ThumbHash and all your CP images will use the Imgix source for transforms.
 
-### Servd Hosting
+- **Servd Hosting:** Works great on [Servd](https://servd.host/) hosting. Use their plugin to replace Craft transforms with Servd's image optimization service.
 
-Works great on [Servd](https://servd.host/) hosting. Use their plugin to replace Craft transforms with Servd's image optimization service.
-
-
-
-## Transform Concurrency
+### Transform Concurrency
 
 When generating thumbhashes for large batches of assets, the plugin needs to fetch many transformed images. The `fetchConcurrency` setting controls how many HTTP requests it will make in parallel during this prefetch step.
 
@@ -316,13 +337,33 @@ With all this praise of external transform services, it's worth noting that the 
 
 If you are developing and need to clear the stored thumbhashes for whatever reason, the transforms will be reused on the next generation run, so subsequent runs will be much faster after the initial generation.
 
-## Performance Considerations
+### Asynchronous Generation
 
 - ThumbHash generation is performed asynchronously in a queue job to avoid blocking the request thread.
 - If `autoGenerate` is enabled, uploading or replacing an image asset will trigger a new hash generation job for that asset.
 - When uploading large numbers of assets, Craft processes them in small batches only triggering a few hash generation jobs at any one time.
 
-## Backfilling Existing Assets
+## Control Panel Features
+
+### Asset Metadata
+For supported image assets, the plugin also surfaces ThumbHash data in the Craft control panel:
+
+- Asset details show a `ThumbHash` metadata field with the stored hash string.
+- Asset details show a `#PNG` metadata preview when a PNG data URL is available.
+- The Assets index gets a `#PNG` preview column by default when `generateDataUrl` is enabled.
+
+### Maintenance Utility
+
+The plugin also adds a `Utilities -> ThumbHash` utility panel for maintenance tasks:
+
+- Queue generation for missing or modified image assets.
+- Preview stored PNG placeholders across assets.
+- Clear all stored thumbhash records.
+
+
+## CLI & Maintenance
+
+### Backfilling Existing Assets
 
 To generate thumbhashes for assets that existed before the plugin was installed:
 
@@ -340,7 +381,7 @@ This command queues a batch job and returns immediately with the queued job ID. 
 
 Large asset sets with server-side transforms can be slow — consider running during low-traffic periods or using an external transform service.
 
-## Clearing Stored Thumbhashes
+### Clearing Stored Thumbhashes
 
 From the Control Panel Utility:
 
@@ -358,6 +399,43 @@ php craft thumbhash/generate/clear-data-urls --yes=1
 ```
 
 The `--yes=1` flag is required as a safety guard for this destructive action.
+
+## Reference
+
+### Template Functions
+
+| Function | Description |
+|---|---|
+| `thumbhash(asset)` | Returns the base64 thumbhash string for an asset, or `null` |
+| `thumbhashDataUrl(asset)` | Returns the thumbhash decoded as a PNG data URL, or `null` |
+| `thumbhashTransparentSvg(width = 4, height = 4)` | Returns a transparent SVG placeholder data URL |
+| `thumbhashScript()` | Registers the client-side decoder (position controlled by `scriptPosition` setting) |
+
+### JavaScript API
+
+The decoder exposes a global API for manual use:
+
+This API mirrors the default ThumbHash browser encoder. It does not use the plugin's server-side compressed PNG generation path.
+
+- Scope: `window.thumbhash` is a browser global and only exists on pages where `thumbhashScript()` is included.
+- Availability: it is available to any frontend JavaScript (vanilla JS, Alpine, React, Vue, etc.) after the decoder script has loaded.
+- Not available in PHP or CLI contexts.
+
+Example:
+
+```js
+// Decode a base64 thumbhash to a data URL
+var dataUrl = window.thumbhash.toDataURL('BASE64_HASH');
+
+// Or get a CSS background-image value
+var backgroundImage = window.thumbhash.toBackgroundImage('BASE64_HASH');
+
+// Optional second arg: target aspect ratio (width / height)
+// Example: crop/resize placeholder to 16:9
+var dataUrl16x9 = window.thumbhash.toDataURL('BASE64_HASH', 16 / 9);
+```
+
+If no valid target ratio is available, `toDataURL()` returns the placeholder at the ThumbHash's native decoded dimensions.
 
 ## Notes
 
