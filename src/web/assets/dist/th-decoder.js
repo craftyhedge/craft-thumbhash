@@ -429,6 +429,20 @@
 
         var selector = '[data-thumbhash]:not([data-thumbhash-ready])';
 
+        function handlePictureChild(node) {
+            if (node.tagName !== 'SOURCE' && node.tagName !== 'IMG') return;
+            var parent = node.parentElement;
+            if (!parent) return;
+            if (!parent.dataset.thumbhashReady) return;
+            if (getRenderMethod(parent) !== 'picture') return;
+            var hashStr = parent.dataset.thumbhash;
+            if (!hashStr) return;
+            if (node.tagName === 'SOURCE' && !node.hasAttribute('data-srcset')) return;
+            var ratio = getElementAspectRatio(node);
+            var dataUrl = window.thumbhash.toDataURL(hashStr, ratio);
+            applyChildPlaceholder(node, dataUrl);
+        }
+
         var domObserver = new MutationObserver(function (mutations) {
             for (var i = 0; i < mutations.length; i++) {
                 var added = mutations[i].addedNodes;
@@ -446,6 +460,10 @@
                             processElement(matches[k]);
                         }
                     }
+
+                    // Handle source/img children arriving after their
+                    // picture container was already processed.
+                    handlePictureChild(node);
                 }
             }
         });
