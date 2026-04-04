@@ -175,7 +175,8 @@ class ThumbhashService extends Component
                 }
 
                 $processStartedAt = microtime(true);
-                $payload = $this->generateHashPayloadFromPath($tempPath, $generateDataUrl);
+                $targetRatio = $asset->width && $asset->height ? $asset->width / $asset->height : null;
+                $payload = $this->generateHashPayloadFromPath($tempPath, $generateDataUrl, $targetRatio);
                 $processMs = $this->durationMs($processStartedAt);
 
                 if ($payload === null) {
@@ -227,7 +228,7 @@ class ThumbhashService extends Component
         }
     }
 
-    private function generateHashPayloadFromPath(string $path, bool $generateDataUrl): ?array
+    private function generateHashPayloadFromPath(string $path, bool $generateDataUrl, ?float $targetRatio = null): ?array
     {
         // Resize and extract RGBA pixels
         $extractStartedAt = microtime(true);
@@ -267,7 +268,7 @@ class ThumbhashService extends Component
         $dataUrl = null;
         if ($generateDataUrl) {
             $dataUrlStartedAt = microtime(true);
-            $dataUrl = $this->hashArrayToDataUrl($hashArray);
+            $dataUrl = $this->hashArrayToDataUrl($hashArray, $targetRatio);
             $dataUrlMs = $this->durationMs($dataUrlStartedAt);
 
             $this->logEvent('debug', 'thumbhash.pipeline.timing.data_url', [
@@ -1373,7 +1374,7 @@ class ThumbhashService extends Component
      * Get the stored or decoded PNG data URL for an asset.
      * Returns the pre-computed value from DB if available, otherwise decodes on the fly.
      */
-    public function getDataUrl(int $assetId): ?string
+    public function getDataUrl(int $assetId, ?float $targetRatio = null): ?string
     {
         if (isset($this->dataUrlCache[$assetId])) {
             return $this->dataUrlCache[$assetId];
@@ -1397,7 +1398,7 @@ class ThumbhashService extends Component
         }
 
         try {
-            $dataUrl = $this->hashToDataUrl($record->hash);
+            $dataUrl = $this->hashToDataUrl($record->hash, $targetRatio);
             $this->dataUrlCache[$assetId] = $dataUrl;
 
             return $dataUrl;
@@ -1410,11 +1411,109 @@ class ThumbhashService extends Component
     /**
      * Decode a base64 thumbhash string to a PNG data URL.
      */
-    public function hashToDataUrl(string $hash): string
+    public function hashToDataUrl(string $hash, ?float $targetRatio = null): string
     {
         $hashArray = Thumbhash::convertStringToHash($hash);
 
-        return $this->hashArrayToDataUrl($hashArray);
+        return $this->hashArrayToDataUrl($hashArray, $targetRatio);
+    }
+
+    /**
+     * Crops and resizes an RGBA pixel array to the target aspect ratio using bilinear interpolation.
+     * Matches the frontend JS implementation.
+     *
+     * @param int $w Source width
+     * @param int $h Source height
+     * @param array<int> $rgba
+     * @param float $targetRatio
+     * @return array{w: int, h: int, rgba: array<int>}
+     */
+    private function cropAndResizeRGBA(int $w, int $h, array $rgba, float $targetRatio): array
+    {
+        if ($targetRatio <= 0) {
+            return ['w' => $w, 'h' => $h, 'rgba' => $rgba];
+        }
+        
+        $PLACEHOLDER_LONG_SIDE = 32;
+        
+        $targetW = $targetRatio >= 1
+            ? $PLACEHOLDER_LONG_SIDE
+            : (int)max(1, round($PLACEHOLDER_LONG_SIDE * $targetRatio));
+            
+        $targetH = $targetRatio >= 1
+            ? (int)max(1, round($PLACEHOLDER_LONG_SIDE / $targetRatio))
+            : $PLACEHOLDER_LONG_SIDE;
+
+        $sourceRatio = $w / $h;
+        $cropX = 0.0;
+        $cropY = 0.0;
+        $cropW = (float)$w;
+        $cropH = (float)$h;
+
+        if ($sourceRatio > $targetRatio) {
+            $cropW = max(1.0, round($cropH * $targetRatio));
+            $cropX = ($w - $cropW) / 2.0;
+        } elseif ($sourceRatio < $targetRatio) {
+            $cropH = max(1.0, round($cropW / $targetRatio));
+            $cropY = ($h - $cropH) / 2.0;
+        }
+
+        $out = array_fill(0, $targetW * $targetH * 4, 0);
+
+        // Precalculate X-axis variables to avoid doing it inside the Y-axis loop
+        $x0Arr = [];
+        $x1Arr = [];
+        $wxArr = [];
+        for ($x = 0; $x < $targetW; $x++) {
+            $sx = max(0.0, min((float)($w - 1), $cropX + ($x + 0.5) * $cropW / $targetW - 0.5));
+            $x0Arr[$x] = (int)floor($sx);
+            $x1Arr[$x] = (int)min($w - 1, $x0Arr[$x] + 1);
+            $wxArr[$x] = $sx - $x0Arr[$x];
+        }
+
+        $dstIndex = 0;
+        $w4 = $w * 4;
+
+        for ($y = 0; $y < $targetH; $y++) {
+            $sy = max(0.0, min((float)($h - 1), $cropY + ($y + 0.5) * $cropH / $targetH - 0.5));
+            $y0 = (int)floor($sy);
+            $y1 = (int)min($h - 1, $y0 + 1);
+            $wy = $sy - $y0;
+
+            $y0w4 = $y0 * $w4;
+            $y1w4 = $y1 * $w4;
+
+            for ($x = 0; $x < $targetW; $x++) {
+                $wx = $wxArr[$x];
+
+                $i00 = $y0w4 + $x0Arr[$x] * 4;
+                $i10 = $y0w4 + $x1Arr[$x] * 4;
+                $i01 = $y1w4 + $x0Arr[$x] * 4;
+                $i11 = $y1w4 + $x1Arr[$x] * 4;
+
+                // R
+                $top = $rgba[$i00] + ($rgba[$i10] - $rgba[$i00]) * $wx;
+                $bottom = $rgba[$i01] + ($rgba[$i11] - $rgba[$i01]) * $wx;
+                $out[$dstIndex++] = max(0, min(255, (int)round($top + ($bottom - $top) * $wy)));
+
+                // G
+                $top = $rgba[$i00 + 1] + ($rgba[$i10 + 1] - $rgba[$i00 + 1]) * $wx;
+                $bottom = $rgba[$i01 + 1] + ($rgba[$i11 + 1] - $rgba[$i01 + 1]) * $wx;
+                $out[$dstIndex++] = max(0, min(255, (int)round($top + ($bottom - $top) * $wy)));
+
+                // B
+                $top = $rgba[$i00 + 2] + ($rgba[$i10 + 2] - $rgba[$i00 + 2]) * $wx;
+                $bottom = $rgba[$i01 + 2] + ($rgba[$i11 + 2] - $rgba[$i01 + 2]) * $wx;
+                $out[$dstIndex++] = max(0, min(255, (int)round($top + ($bottom - $top) * $wy)));
+
+                // A
+                $top = $rgba[$i00 + 3] + ($rgba[$i10 + 3] - $rgba[$i00 + 3]) * $wx;
+                $bottom = $rgba[$i01 + 3] + ($rgba[$i11 + 3] - $rgba[$i01 + 3]) * $wx;
+                $out[$dstIndex++] = max(0, min(255, (int)round($top + ($bottom - $top) * $wy)));
+            }
+        }
+
+        return ['w' => $targetW, 'h' => $targetH, 'rgba' => $out];
     }
 
     /**
@@ -1425,9 +1524,11 @@ class ThumbhashService extends Component
      *
      * @param array<int> $hashArray
      */
-    private function hashArrayToDataUrl(array $hashArray): string
+    private function hashArrayToDataUrl(array $hashArray, ?float $targetRatio = null): string
     {
-        if (!$this->shouldUsePngCompression()) {
+        $useCompression = $this->shouldUsePngCompression();
+        
+        if (!$useCompression && $targetRatio === null) {
             return Thumbhash::toDataURL($hashArray);
         }
 
@@ -1443,10 +1544,21 @@ class ThumbhashService extends Component
             is_array($rgba) &&
             count($rgba) === $w * $h * 4
         ) {
-            $pngBytes = $this->encodeCompressedPngBytes($w, $h, $rgba);
-            if ($pngBytes !== null) {
-                return 'data:image/png;base64,' . base64_encode($pngBytes);
+            if ($targetRatio !== null) {
+                $cropped = $this->cropAndResizeRGBA($w, $h, $rgba, $targetRatio);
+                $w = $cropped['w'];
+                $h = $cropped['h'];
+                $rgba = $cropped['rgba'];
             }
+
+            if ($useCompression) {
+                $pngBytes = $this->encodeCompressedPngBytes($w, $h, $rgba);
+                if ($pngBytes !== null) {
+                    return 'data:image/png;base64,' . base64_encode($pngBytes);
+                }
+            }
+            
+            return Thumbhash::rgbaToDataURL($w, $h, $rgba);
         }
 
         return Thumbhash::toDataURL($hashArray);
@@ -2002,7 +2114,8 @@ class ThumbhashService extends Component
 
         try {
             $processStartedAt = microtime(true);
-            $payload = $this->generateHashPayloadFromPath($fetchedPath, $generateDataUrl);
+            $targetRatio = $asset->width && $asset->height ? $asset->width / $asset->height : null;
+            $payload = $this->generateHashPayloadFromPath($fetchedPath, $generateDataUrl, $targetRatio);
             $processMs = $this->durationMs($processStartedAt);
 
             if ($payload === null) {

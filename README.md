@@ -37,6 +37,7 @@ That's it for most sites. Drop the hash in your markup, register the script once
 If you need placeholders without any JavaScript — for example in RSS feeds, AMP pages, or HTML emails — the plugin can also pre-decode each hash to a PNG data URL on the server and store it in the database.
 
 - Typically ~0.8–2 KB per image (before HTTP compression), still smaller and better-looking than most blurred LQIPs.
+- The backend generator automatically reads the original image dimensions and applies an exact center-crop to the decoded PNG to perfectly match the asset's aspect ratio, preventing layout shifts.
 - Opt in with the `generateDataUrl` setting (enabled by default).
 - Use `thumbhashDataUrl(asset)` in your templates to get the ready-made data URL.
 
@@ -225,8 +226,6 @@ For the no JS decoding option, you can use `thumbhashDataUrl()` to get the decod
     />
 </div>
 ```
-Recommended for use as background images. The backend decoder sets the png ratio to the source image dimensions, not the rendered element dimensions.
-Depending on your styling it may cause layout shift. For example, if you use `aspect-ratio` or fixed dimensions on the element, the placeholder will be sized to the rendered dimensions and won't cause shift. If you use `width: 100%` and variable height based on image content, the placeholder will be sized to the source image dimensions and may cause shift until the full image loads.
 
 ### CSS for Smooth Lazyloading Class Swaps
 

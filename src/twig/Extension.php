@@ -45,7 +45,8 @@ class Extension extends AbstractExtension
             return null;
         }
 
-        return Plugin::getInstance()->thumbhash->getDataUrl($asset->id);
+        $ratio = $asset->width && $asset->height ? $asset->width / $asset->height : null;
+        return Plugin::getInstance()->thumbhash->getDataUrl($asset->id, $ratio);
     }
 
     /**
