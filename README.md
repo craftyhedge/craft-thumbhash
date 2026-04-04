@@ -30,7 +30,7 @@ The result: an immediate, content-aware preview while the full image loads, impr
 1. **Backend** — On upload (or via CLI), the plugin creates a small transform of the original image and encodes it to a ~28-byte base64 hash using the ThumbHash algorithm. Generation runs in a queue job so it never blocks a request.
 2. **Frontend** — A single inline decoder script (~5 KB minified) registers a MutationObserver that automatically converts every `data-thumbhash` attribute into a PNG placeholder data URL as the DOM is built. It then applies that placeholder using the configured render method (`bg` by default, or `img`/`picture`). No extra network requests, no visible pop-in.
 
-That's it for most sites. Drop the hash in your markup, register the script once, and placeholders appear before images even start loading.
+That's it for most sites. Drop the hash in your markup, register the script once, and placeholders appear before images even start loading. This gives you a massive advantage for **eagerly loaded** images (like above-the-fold hero images)—you get an instant LQIP (Low-Quality Image Placeholder) while the network fetches the real image, completely decoupled from any lazy-loading library.
 
 ### Optional: Inline PNG Data URLs
 
@@ -98,6 +98,8 @@ For `<img>` placeholders written directly to `src`, either set `data-thumbhash-r
 ### Background Image Support
 
 Pass the hash with `data-thumbhash` and set `data-thumbhash-render="bg"` (or rely on the global default). The decoder will populate `style.backgroundImage` and apply the configured background placeholder styles for you. By default that is `background-repeat: no-repeat`, `background-size: cover`, and `background-position: center`.
+
+A distinct benefit of the background image approach is that it **decouples your LQIP from lazyloading**. Eager-loaded images display the placeholder instantly, and the full image seamlessly overlays it once downloaded natively by the browser.
 
 ```twig
 {% set hash = thumbhash(asset) %}
