@@ -12,6 +12,7 @@
 - New setting: `renderMethod` (`bg`, `picture`, `img`).
 - New setting: `scriptPosition` (`head`, `end`).
 - Picture placeholder propagation support for `<picture data-thumbhash ...>` wrappers.
+- Introduced ratio cropped PNG placeholders for better aspect ratio handling and reduced layout shift (JS decoder only).
 
 ### Changed
 - Inline decoder config now includes `renderMethod`.
