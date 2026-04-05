@@ -30,7 +30,10 @@ The result: an immediate, content-aware preview while the full image loads, impr
 1. **Backend** — On upload (or via CLI), the plugin creates a small transform of the original image and encodes it to a ~28-byte base64 hash using the ThumbHash algorithm. Generation runs in a queue job so it never blocks a request.
 2. **Frontend** — A single inline decoder script (~5 KB minified) registers a MutationObserver that automatically converts every `data-thumbhash` attribute into a PNG placeholder data URL as the DOM is built. It then applies that placeholder using the configured render method (`bg` by default, or `img`/`picture`). No extra network requests, no visible pop-in.
 
-That's it for most sites. Drop the hash in your markup, register the script once, and placeholders appear before images even start loading. This gives you a massive advantage for **eagerly loaded** images (like above-the-fold hero images)—you get an instant LQIP (Low-Quality Image Placeholder) while the network fetches the real image, completely decoupled from any lazy-loading library.
+That's it for most sites. Drop the hash in your markup, register the script once, and placeholders appear before images even start loading.
+
+Using the `bg` mode even provides LQIPs for eager loaded images! Since the placeholder is decoupled from lazy loading the full image simply overlays the placeholder once downloaded natively by the browser.
+
 
 ### Optional: Inline PNG Data URLs
 
@@ -45,7 +48,8 @@ For regular websites, the JS decoder is the recommended approach — it keeps pe
 
 ## Example
 
-ThumbHash placeholders retain accurate colors and smooth gradients. To achieve the same results with blurred transformed placeholders means a larger payload and many extra requests.
+ThumbHash placeholders retain accurate colors and smooth gradients. They encode information to a string that is smaller than a typical LQIP URL!
+
 
 Check it out - [ThumbHash Example](https://craftyhedge.github.io/thumbhash-example/)
 
@@ -138,6 +142,8 @@ The placeholder ratio is derived from the `width` and `height` attributes on eac
 | `bg` | Most use cases (recommended default) |
 | `picture` | Responsive images with multiple sources/aspect ratios |
 | `img` | Single images without responsive breakpoints |
+
+> **Note:** Due to the nature of ThumbHash placeholders, the accuracy the picture method provides tends to be overkill. ThumbHashes are blurry and slight differences between it and the final image are very hard to notice for most use cases. Background placeholders with `cover` sizing do the job very well and have the bonus of giving eager loaded images LQIPs too!
 
 ### Fallback vs. Explicit Rendering
 
