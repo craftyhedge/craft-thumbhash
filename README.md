@@ -133,7 +133,7 @@ The placeholder ratio is derived from the `width` and `height` attributes on eac
 
 ### What should you use?
 
-| MeChoosing a Render Method
+| Method | Use Case |
 |---|---|
 | `bg` | Most use cases (recommended default) |
 | `picture` | Responsive images with multiple sources/aspect ratios |
@@ -202,16 +202,6 @@ return [
 ];
 ``` 
 
-### Dimension Behavior
-
-Placeholders are cropped/resized to match the aspect ratio from `width`/`height` attributes — include those for best results.
-
-- **`<img>`** — uses the element's own `width`/`height`.
-- **`bg`** — checks the element's `width`/`height`, then falls back to the first nested `<img>`.
-- **`<source>`** — only applied when `data-srcset` exists.
-- If dimensions are missing or invalid, the ThumbHash's native decoded dimensions are used (no crop/resize). Avoid if possible for best results.
-- CSS-rendered size is not used.
-
 ### No JavaScript Option
 
 For the no JS decoding option, you can use `thumbhashDataUrl()` to get the decoded PNG data URL directly and set it as an inline background image:
@@ -254,9 +244,7 @@ If you are mixing modes, prefer explicit `data-thumbhash-render` attributes and 
 
 ## Configuration
 
-Copy the plugin config template from [src/config.php](src/config.php) to `config/thumbhash.php` in your Craft project, then uncomment and adjust only the options you need.
-
-Canonical config reference:
+Copy the plugin config template from [src/config.php](src/config.php) to `config/thumbhash.php` in your Craft project, then uncomment and adjust only the options you need:
 
 - [src/config.php](src/config.php)
 
@@ -330,9 +318,11 @@ Now ThumbHash and all your CP images will use the Imgix source for transforms.
 
 When generating thumbhashes for large batches of assets, the plugin needs to fetch many transformed images. The `fetchConcurrency` setting controls how many HTTP requests it will make in parallel during this prefetch step.
 
-The default concurrency is 3, which is conservative and safe for local transforms. If you use a CDN-backed transform service like Imgix that handles concurrent requests well, you can increase `fetchConcurrency` (e.g. 8–10) to speed up batch prefetch significantly.
+The default concurrency is 3, which is conservative and safe for local transforms. If you use a CDN-backed transform service that handles concurrent requests well, you can increase `fetchConcurrency` (e.g. 8–10) to speed up batch prefetch significantly.
 
-The difference with Imgix and 10 concurrent fetches on 100s or 1000s of assets can be dramatic.
+The difference with 10+ concurrent fetches on 100s or 1000s of assets can be dramatic.
+
+If you push this too high you might see some failed fetches due to rate limits or server resource constraints, so adjust according to your hosting environment and transform source capabilities.
 
 With all this praise of external transform services, it's worth noting that the default Craft transform generation still works just fine with this plugin. It just won't be as fast for large batches of assets like when you first backfill existing assets.
 
