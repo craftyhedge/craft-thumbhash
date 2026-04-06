@@ -1,5 +1,10 @@
 # Release Notes for ThumbHash
 
+## 2.0.1 - 2026-04-06
+
+### Fixed
+- Fixed CRC32 and Adler32 checksum calculations in the client-side PNG encoder for improved data integrity. Replaced the fragile nibble-based inline CRC and interleaved Adler32 with standard full-table CRC32 and a dedicated Adler32 pass over a pre-built scanline buffer.
+
 ## 2.0.0 - 2026-04-04
 
 ### Breaking Changes
