@@ -147,6 +147,39 @@
         return { w: targetW, h: targetH, rgba: out };
     }
 
+    var crcTable = [];
+    for (var n = 0; n < 256; n++) {
+        var c = n;
+        for (var k = 0; k < 8; k++) {
+            c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+        }
+        crcTable[n] = c >>> 0;
+    }
+
+    var PNG_ADLER32_MOD = 65521;
+
+    function computeAdler32(bytes) {
+        var a = 1;
+        var b = 0;
+        for (var i = 0; i < bytes.length; i++) {
+            a = (a + bytes[i]) % PNG_ADLER32_MOD;
+            b = (b + a) % PNG_ADLER32_MOD;
+        }
+        return ((b << 16) | a) >>> 0;
+    }
+
+    function writeCrc32(bytes, start, end) {
+        var c = 0xFFFFFFFF;
+        for (var i = start; i < end; i++) {
+            c = crcTable[(c ^ bytes[i]) & 255] ^ (c >>> 8);
+        }
+        c = (c ^ 0xFFFFFFFF) >>> 0;
+        bytes[end] = (c >>> 24) & 255;
+        bytes[end + 1] = (c >>> 16) & 255;
+        bytes[end + 2] = (c >>> 8) & 255;
+        bytes[end + 3] = c & 255;
+    }
+
     // ---- thumbHashToRGBA (from evanw/thumbhash, MIT) ----
     function thumbHashToRGBA(hash) {
         if (!hash || hash.length < 5) throw new Error('Invalid ThumbHash');
@@ -263,46 +296,40 @@
     function rgbaToDataURL(w, h, rgba) {
         var row = w * 4 + 1;
         var idat = 6 + h * (5 + row);
+
+        // Build the uncompressed scanline payload once so Adler32 is exact.
+        var raw = new Uint8Array(h * row);
+        for (var y = 0, src = 0, dst = 0; y < h; y++) {
+            raw[dst++] = 0; // PNG filter type 0 (None)
+            for (var x = 0; x < w * 4; x++) {
+                raw[dst++] = rgba[src++];
+            }
+        }
+
         var bytes = [
             137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0,
             w >> 8, w & 255, 0, 0, h >> 8, h & 255, 8, 6, 0, 0, 0, 0, 0, 0, 0,
             idat >>> 24, (idat >> 16) & 255, (idat >> 8) & 255, idat & 255,
             73, 68, 65, 84, 120, 1
         ];
-        var table = [
-            0, 498536548, 997073096, 651767980, 1994146192, 1802195444, 1303535960,
-            1342533948, -306674912, -267414716, -690576408, -882789492, -1687895376,
-            -2032938284, -1609899400, -1111625188
-        ];
-        var a = 1, b = 0;
-        for (var y = 0, i = 0, end = row - 1; y < h; y++, end += row - 1) {
+
+        for (var y = 0, rawOffset = 0; y < h; y++) {
             bytes.push(y + 1 < h ? 0 : 1, row & 255, row >> 8, ~row & 255, (row >> 8) ^ 255, 0);
-            for (b = (b + a) % 65521; i < end; i++) {
-                var u = rgba[i] & 255;
-                bytes.push(u);
-                a = (a + u) % 65521;
-                b = (b + a) % 65521;
+            for (var i = 1; i < row; i++) {
+                bytes.push(raw[rawOffset + i] & 255);
             }
+            rawOffset += row;
         }
+
+        var adler = computeAdler32(raw);
         bytes.push(
-            b >> 8, b & 255, a >> 8, a & 255, 0, 0, 0, 0,
+            (adler >>> 24) & 255, (adler >> 16) & 255, (adler >> 8) & 255, adler & 255, 0, 0, 0, 0,
             0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130
         );
-        var pairs = [[12, 29], [37, 41 + idat]];
-        for (var p = 0; p < pairs.length; p++) {
-            var start = pairs[p][0], pend = pairs[p][1];
-            var c = ~0;
-            for (var i = start; i < pend; i++) {
-                c ^= bytes[i];
-                c = (c >>> 4) ^ table[c & 15];
-                c = (c >>> 4) ^ table[c & 15];
-            }
-            c = ~c;
-            bytes[pend++] = c >>> 24;
-            bytes[pend++] = (c >> 16) & 255;
-            bytes[pend++] = (c >> 8) & 255;
-            bytes[pend++] = c & 255;
-        }
+
+        writeCrc32(bytes, 12, 29); // IHDR type+data -> IHDR CRC
+        writeCrc32(bytes, 37, 41 + idat); // IDAT type+data -> IDAT CRC
+
         return 'data:image/png;base64,' + btoa(String.fromCharCode.apply(null, bytes));
     }
 
