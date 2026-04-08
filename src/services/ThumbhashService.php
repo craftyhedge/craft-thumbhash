@@ -28,6 +28,8 @@ class ThumbhashService extends Component
 
     /**
      * In-memory cache for data URLs within the same request.
+     *
+     * @var array<int, string>
      */
     private array $dataUrlCache = [];
     /**
@@ -59,7 +61,7 @@ class ThumbhashService extends Component
     /**
      * Generate hash data and return status metadata for the caller.
      *
-     * @return array{status: string, reason: string|null, payload: array{hash: string, dataUrl: ?string}|null}
+     * @return array<string, mixed>
      */
     public function generateHashPayloadWithStatus(
         Asset $asset,
@@ -105,6 +107,9 @@ class ThumbhashService extends Component
         return $this->generateHashPayloadFromTransform($asset, $generateDataUrl);
     }
 
+    /**
+     * @return array<string, mixed>
+     */
     private function generateHashPayloadFromTransform(Asset $asset, bool $generateDataUrl): array
     {
         $assetId = (int)$asset->id;
@@ -228,6 +233,9 @@ class ThumbhashService extends Component
         }
     }
 
+    /**
+     * @return array<string, mixed>|null
+     */
     private function generateHashPayloadFromPath(string $path, bool $generateDataUrl, ?float $targetRatio = null): ?array
     {
         // Resize and extract RGBA pixels
@@ -649,6 +657,9 @@ class ThumbhashService extends Component
         return (int)round((microtime(true) - $startedAt) * 1000);
     }
 
+    /**
+     * @param array<string, mixed> $context
+     */
     private function logEvent(string $level, string $event, array $context = []): void
     {
         $message = new PsrMessage($event, $context);
@@ -982,6 +993,7 @@ class ThumbhashService extends Component
             return [];
         }
 
+        /** @var array<int, ThumbhashRecord> */
         return ThumbhashRecord::find()
             ->where(['assetId' => $assetIds])
             ->indexBy('assetId')
@@ -1163,7 +1175,7 @@ class ThumbhashService extends Component
 
         $rows = array_map(static function(array $record): array {
             return [
-                'assetId' => (int)($record['assetId'] ?? 0),
+                'assetId' => (int)$record['assetId'],
                 'dataUrl' => (string)($record['dataUrl'] ?? ''),
             ];
         }, $records);
@@ -1215,7 +1227,7 @@ class ThumbhashService extends Component
 
         $rows = array_map(static function(array $record): array {
             return [
-                'assetId' => (int)($record['assetId'] ?? 0),
+                'assetId' => (int)$record['assetId'],
                 'hash' => (string)($record['hash'] ?? ''),
             ];
         }, $records);
@@ -1255,7 +1267,7 @@ class ThumbhashService extends Component
                 continue;
             }
 
-            $assetId = (int)($row['assetId'] ?? 0);
+            $assetId = (int)$row['assetId'];
 
             if (
                 $cursorUpdatedAt === null ||
@@ -1270,6 +1282,9 @@ class ThumbhashService extends Component
         return [$cursorUpdatedAt, $cursorAssetId];
     }
 
+    /**
+     * @return Query<int, array<string, mixed>>
+     */
     private function utilityBaseQuery(): Query
     {
         $query = (new Query())
@@ -1759,7 +1774,12 @@ class ThumbhashService extends Component
     private function extractRgbaGd(string $path): ?array
     {
         try {
-            $source = @imagecreatefromstring(file_get_contents($path));
+            $data = file_get_contents($path);
+            if ($data === false) {
+                Craft::error('ThumbHash: GD could not read image file.', __METHOD__);
+                return null;
+            }
+            $source = @imagecreatefromstring($data);
 
             if (!$source) {
                 Craft::error('ThumbHash: GD could not load image.', __METHOD__);
@@ -2102,7 +2122,7 @@ class ThumbhashService extends Component
     /**
      * Generate hash payload from an already-downloaded file.
      *
-     * @return array{status: string, reason: string|null, payload: array{hash: string, dataUrl: ?string}|null}
+     * @return array<string, mixed>
      */
     public function generateHashPayloadFromFetchedFile(
         Asset $asset,

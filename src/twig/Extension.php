@@ -86,7 +86,9 @@ class Extension extends AbstractExtension
         $scriptPath = dirname(__DIR__) . '/web/assets/dist/th-decoder.min.js';
         $scriptContents = file_get_contents($scriptPath);
 
-        $view->registerJs($scriptContents, $position);
+        if ($scriptContents !== false) {
+            $view->registerJs($scriptContents, $position);
+        }
 
         return '';
     }

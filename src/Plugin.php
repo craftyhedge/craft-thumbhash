@@ -22,6 +22,7 @@ use craft\helpers\Html;
 use craft\log\MonologTarget;
 use craft\services\Assets;
 use craft\services\Utilities;
+use craftyhedge\craftthumbhash\helpers\RuleNormalizer;
 use craftyhedge\craftthumbhash\jobs\GenerateThumbhash;
 use craftyhedge\craftthumbhash\models\Settings;
 use craftyhedge\craftthumbhash\records\ThumbhashRecord;
@@ -51,6 +52,9 @@ class Plugin extends BasePlugin
 
     public string $schemaVersion = '1.0.0';
 
+    /**
+     * @return array<string, mixed>
+     */
     public static function config(): array
     {
         return [
@@ -242,7 +246,6 @@ class Plugin extends BasePlugin
                     return;
                 }
 
-                /** @var ThumbhashRecord|null $record */
                 $dataUrl = $this->thumbhashDataUrlForAsset($asset);
 
                 $event->html = $dataUrl && str_starts_with($dataUrl, 'data:image/')
@@ -399,6 +402,9 @@ class Plugin extends BasePlugin
             ->exists();
     }
 
+    /**
+     * @param Query<int|string, mixed> $query
+     */
     public function applyFolderRulesToQuery(
         Query $query,
         string $folderPathColumn = 'volumeFolders.path',
@@ -420,6 +426,9 @@ class Plugin extends BasePlugin
         );
     }
 
+    /**
+     * @param Query<int|string, mixed> $query
+     */
     public function applyIncludeRulesToQuery(
         Query $query,
         string $folderPathColumn = 'volumeFolders.path',
@@ -496,6 +505,9 @@ class Plugin extends BasePlugin
         }
     }
 
+    /**
+     * @param Query<int|string, mixed> $query
+     */
     public function applyIgnoreRulesToQuery(
         Query $query,
         string $folderPathColumn = 'volumeFolders.path',
@@ -544,7 +556,13 @@ class Plugin extends BasePlugin
         }
 
         if (count($ignoredConditions) > 1) {
-            $query->andWhere(['not', $ignoredConditions]);
+            // Wrap with OR IS NULL so root-folder assets (whose volumefolders.path
+            // is NULL) are not accidentally excluded by NOT (NULL LIKE ...) → NULL.
+            $query->andWhere([
+                'or',
+                ['not', $ignoredConditions],
+                [$folderPathColumn => null],
+            ]);
         }
     }
 
@@ -556,7 +574,7 @@ class Plugin extends BasePlugin
         /** @var Settings $settings */
         $settings = $this->getSettings();
 
-        return $this->normalizedRulesByScope($settings->includeRules);
+        return (new RuleNormalizer())->normalizedRulesByScope($settings->includeRules);
     }
 
     /**
@@ -567,53 +585,7 @@ class Plugin extends BasePlugin
         /** @var Settings $settings */
         $settings = $this->getSettings();
 
-        return $this->normalizedRulesByScope($settings->ignoreRules);
-    }
-
-    /**
-     * @param array<string, mixed> $rawRules
-     * @return array<string, array<int, string>>
-     */
-    private function normalizedRulesByScope(array $rawRules): array
-    {
-        $normalized = [];
-
-        foreach ($rawRules as $scope => $rawPatterns) {
-            $normalizedScope = $this->normalizeIgnoreScope($scope);
-            if ($normalizedScope === null) {
-                continue;
-            }
-
-            $patterns = is_string($rawPatterns)
-                ? [$rawPatterns]
-                : (is_array($rawPatterns) ? $rawPatterns : []);
-
-            foreach ($patterns as $rawPattern) {
-                if (!is_string($rawPattern)) {
-                    continue;
-                }
-
-                $normalizedPattern = $this->normalizeIgnorePattern($rawPattern);
-                if ($normalizedPattern === null) {
-                    continue;
-                }
-
-                $normalized[$normalizedScope][] = $normalizedPattern;
-            }
-        }
-
-        foreach ($normalized as $scope => $patterns) {
-            $unique = array_values(array_unique($patterns));
-
-            if ($unique === []) {
-                unset($normalized[$scope]);
-                continue;
-            }
-
-            $normalized[$scope] = $unique;
-        }
-
-        return $normalized;
+        return (new RuleNormalizer())->normalizedRulesByScope($settings->ignoreRules);
     }
 
     /**
@@ -642,51 +614,7 @@ class Plugin extends BasePlugin
         return array_values(array_unique($patterns));
     }
 
-    private function normalizeIgnoreScope(string|int $scope): ?string
-    {
-        if (is_int($scope)) {
-            return '*';
-        }
 
-        $normalized = trim($scope);
-        if ($normalized === '') {
-            return null;
-        }
-
-        if ($normalized === '*') {
-            return '*';
-        }
-
-        return strtolower($normalized);
-    }
-
-    private function normalizeIgnorePattern(string $pattern): ?string
-    {
-        $normalized = trim(str_replace('\\', '/', $pattern));
-        if ($normalized === '') {
-            return null;
-        }
-
-        $normalized = ltrim(preg_replace('#/+#', '/', $normalized) ?? $normalized, '/');
-        if ($normalized === '') {
-            return null;
-        }
-
-        if ($normalized === '*') {
-            return '*';
-        }
-
-        if (!str_contains($normalized, '*')) {
-            $prefix = rtrim($normalized, '/');
-            return $prefix === '' ? '*' : "$prefix/*";
-        }
-
-        if (str_ends_with($normalized, '/')) {
-            return $normalized . '*';
-        }
-
-        return $normalized;
-    }
 
     /**
      * @param array<int, string> $scopes
@@ -793,9 +721,19 @@ class Plugin extends BasePlugin
             ->where(['assetId' => $missingIds])
             ->all();
 
+        /** @var ThumbhashRecord $record */
         foreach ($records as $record) {
             $this->assetPreviewDataUrls[(int)$record->assetId] = $record->dataUrl;
         }
+    }
+
+    /**
+     * @return Settings
+     */
+    public function getSettings(): ?Model
+    {
+        /** @var Settings */
+        return parent::getSettings();
     }
 
     protected function createSettingsModel(): ?Model

@@ -55,11 +55,17 @@ class ThumbhashUtility extends Utility
         ]);
     }
 
+    /**
+     * @return array<int, array<string, mixed>>
+     */
     private static function initialRows(): array
     {
         return Plugin::getInstance()->thumbhash->getUtilityPngRows();
     }
 
+    /**
+     * @return array<int, array<string, mixed>>
+     */
     private static function initialHashRows(): array
     {
         return Plugin::getInstance()->thumbhash->getUtilityHashRows();

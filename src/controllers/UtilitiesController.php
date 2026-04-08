@@ -208,12 +208,15 @@ class UtilitiesController extends Controller
         /** @var Settings $settings */
         $settings = Plugin::getInstance()->getSettings();
         $service = Plugin::getInstance()->thumbhash;
-        $mode = strtolower((string)Craft::$app->getRequest()->getQueryParam('mode', 'auto'));
-        $sinceUpdatedAt = trim((string)Craft::$app->getRequest()->getQueryParam('sinceUpdatedAt', ''));
+
+        /** @var \craft\web\Request $request */
+        $request = Craft::$app->getRequest();
+        $mode = strtolower((string)$request->getQueryParam('mode', 'auto'));
+        $sinceUpdatedAt = trim((string)$request->getQueryParam('sinceUpdatedAt', ''));
         if ($sinceUpdatedAt === '') {
             $sinceUpdatedAt = null;
         }
-        $sinceAssetId = max(0, (int)Craft::$app->getRequest()->getQueryParam('sinceAssetId', 0));
+        $sinceAssetId = max(0, (int)$request->getQueryParam('sinceAssetId', 0));
 
         $rows = [];
         $hashRows = [];

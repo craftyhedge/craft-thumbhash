@@ -123,6 +123,9 @@ class Settings extends Model
      */
     public int $fetchConcurrency = 3;
 
+    /**
+     * @return array<int, mixed>
+     */
     public function defineRules(): array
     {
         $rules = parent::defineRules();

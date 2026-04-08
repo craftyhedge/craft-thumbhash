@@ -152,7 +152,7 @@ class GenerateThumbhashBatch extends BaseBatchedJob
         }
 
         // Process eligible items in chunks via concurrent prefetch
-        $chunks = array_chunk($eligible, $concurrency);
+        $chunks = array_chunk($eligible, max(1, $concurrency));
 
         foreach ($chunks as $chunk) {
             // Report progress before prefetch so the queue UI stays current
@@ -228,7 +228,7 @@ class GenerateThumbhashBatch extends BaseBatchedJob
         if ($this->itemOffset < $this->totalItems()) {
             $nextJob = clone $this;
             $nextJob->batchIndex++;
-            $nextJobId = QueueHelper::push($nextJob, $this->priority, 0, $this->ttr, $queue);
+            $nextJobId = QueueHelper::push($nextJob, $this->priority, 0, $this->ttr, $queue); // @phpstan-ignore argument.type
             $this->advanceUtilityRunJobId($nextJobId);
             return;
         }
@@ -348,6 +348,9 @@ class GenerateThumbhashBatch extends BaseBatchedJob
         }
     }
 
+    /**
+     * @param array<string, mixed> $context
+     */
     private function logEvent(string $level, string $event, array $context = []): void
     {
         $message = new PsrMessage($event, $context);
@@ -402,6 +405,9 @@ class GenerateThumbhashBatch extends BaseBatchedJob
         $cache->set(self::RUN_CACHE_KEY, $run);
     }
 
+    /**
+     * @return Query<int, array<string, mixed>>
+     */
     private function staleAssetIdQuery(bool $requireDataUrl): Query
     {
         $query = (new Query())

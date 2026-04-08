@@ -24,7 +24,7 @@ class GenerateThumbhash extends BaseJob
             ->unique(true)
             ->one();
 
-        if (!$asset) {
+        if (!$asset instanceof Asset) {
             return;
         }
 

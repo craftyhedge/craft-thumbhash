@@ -1,0 +1,24 @@
+2026-04-08 02:32:26 [console.INFO] [yii\db\Connection::open] Opening DB connection: mysql:host=127.0.0.1;dbname=craft_test;port=3306 {"memory":20680624} 
+2026-04-08 02:32:26 [console.INFO] [craft\services\ProjectConfig::_applyChanges] Looking for pending changes {"memory":26199648} 
+2026-04-08 02:32:26 [console.INFO] [craft\services\ProjectConfig::_applyChanges] Parsing 6 new configuration items {"memory":26200688} 
+2026-04-08 02:32:26 [console.INFO] [craft\services\ProjectConfig::_applyChanges] Finalizing configuration parsing {"memory":27587328} 
+2026-04-08 02:32:40 [console.INFO] [yii\db\Connection::open] Opening DB connection: mysql:host=127.0.0.1;dbname=craft_test;port=3306 {"memory":20673912} 
+2026-04-08 02:33:53 [console.INFO] [yii\db\Connection::open] Opening DB connection: mysql:host=127.0.0.1;dbname=craft_test;port=3306 {"memory":20673992} 
+2026-04-08 02:40:34 [console.INFO] [yii\db\Connection::open] Opening DB connection: mysql:host=127.0.0.1;dbname=craft_test;port=3306 {"memory":20668544} 
+2026-04-08 02:42:02 [console.INFO] [yii\db\Connection::open] Opening DB connection: mysql:host=127.0.0.1;dbname=craft_test;port=3306 {"memory":20608704} 
+2026-04-08 02:43:16 [console.INFO] [yii\db\Connection::open] Opening DB connection: mysql:host=127.0.0.1;dbname=craft_test;port=3306 {"memory":20608256} 
+2026-04-08 02:44:39 [console.INFO] [yii\db\Connection::open] Opening DB connection: mysql:host=127.0.0.1;dbname=craft_test;port=3306 {"memory":20606464} 
+2026-04-08 02:49:28 [console.INFO] [yii\db\Connection::open] Opening DB connection: mysql:host=127.0.0.1;dbname=craft_test;port=3306 {"memory":20675816} 
+2026-04-08 03:00:50 [console.INFO] [yii\db\Connection::open] Opening DB connection: mysql:host=127.0.0.1;dbname=craft_test;port=3306 {"memory":20675528} 
+2026-04-08 03:06:20 [console.INFO] [yii\db\Connection::open] Opening DB connection: mysql:host=127.0.0.1;dbname=craft_test;port=3306 {"memory":20835744} 
+2026-04-08 03:06:42 [console.INFO] [yii\db\Connection::open] Opening DB connection: mysql:host=127.0.0.1;dbname=craft_test;port=3306 {"memory":20713752} 
+2026-04-08 03:06:54 [console.INFO] [yii\db\Connection::open] Opening DB connection: mysql:host=127.0.0.1;dbname=craft_test;port=3306 {"memory":20713752} 
+2026-04-08 03:07:38 [console.INFO] [yii\db\Connection::open] Opening DB connection: mysql:host=127.0.0.1;dbname=craft_test;port=3306 {"memory":20713752} 
+2026-04-08 03:08:08 [console.INFO] [craft\services\ProjectConfig::_applyChanges] Looking for pending changes {"memory":26262848} 
+2026-04-08 03:08:08 [console.INFO] [craft\services\ProjectConfig::_applyChanges] Parsing 6 new configuration items {"memory":26263888} 
+2026-04-08 03:08:08 [console.INFO] [craft\services\ProjectConfig::_applyChanges] Finalizing configuration parsing {"memory":27650416} 
+2026-04-08 03:09:39 [console.INFO] [yii\db\Connection::open] Opening DB connection: mysql:host=127.0.0.1;dbname=craft_test;port=3306 {"memory":20712960} 
+2026-04-08 03:10:45 [console.INFO] [yii\db\Connection::open] Opening DB connection: mysql:host=127.0.0.1;dbname=craft_test;port=3306 {"memory":20713992} 
+2026-04-08 03:11:32 [console.INFO] [yii\db\Connection::open] Opening DB connection: mysql:host=127.0.0.1;dbname=craft_test;port=3306 {"memory":20907736} 
+2026-04-08 03:18:03 [console.INFO] [yii\db\Connection::open] Opening DB connection: mysql:host=127.0.0.1;dbname=craft_test;port=3306 {"memory":20907736} 
+2026-04-08 03:24:08 [console.INFO] [yii\db\Connection::open] Opening DB connection: mysql:host=127.0.0.1;dbname=craft_test;port=3306 {"memory":20907736} 
