@@ -236,6 +236,7 @@ class PluginEligibilityTest extends Unit
         $results = $query->column();
         $resultIds = array_map('intval', $results);
 
+        $this->assertCount(4, $resultIds);
         $this->assertContains($this->uploadsRootAsset->id, $resultIds);
         $this->assertContains($this->photosAsset->id, $resultIds);
         $this->assertNotContains($this->tempAsset->id, $resultIds);
@@ -254,6 +255,7 @@ class PluginEligibilityTest extends Unit
         $resultIds = array_map('intval', $results);
 
         // Root-folder assets preserved via OR path IS NULL fallback
+        $this->assertCount(4, $resultIds);
         $this->assertContains($this->uploadsRootAsset->id, $resultIds);
         $this->assertNotContains($this->tempAsset->id, $resultIds);
         $this->assertContains($this->mediaRootAsset->id, $resultIds);
@@ -284,6 +286,7 @@ class PluginEligibilityTest extends Unit
         $results = $query->column();
         $resultIds = array_map('intval', $results);
 
+        $this->assertCount(1, $resultIds);
         $this->assertContains($this->photosAsset->id, $resultIds);
         $this->assertNotContains($this->uploadsRootAsset->id, $resultIds);
         $this->assertNotContains($this->tempAsset->id, $resultIds);
@@ -300,6 +303,7 @@ class PluginEligibilityTest extends Unit
         $resultIds = array_map('intval', $results);
 
         // uploads: only photos/ included
+        $this->assertCount(3, $resultIds);
         $this->assertContains($this->photosAsset->id, $resultIds);
         $this->assertNotContains($this->uploadsRootAsset->id, $resultIds);
         $this->assertNotContains($this->tempAsset->id, $resultIds);
@@ -324,6 +328,7 @@ class PluginEligibilityTest extends Unit
         $resultIds = array_map('intval', $results);
 
         // uploads/photos: included and not ignored
+        $this->assertCount(3, $resultIds);
         $this->assertContains($this->photosAsset->id, $resultIds);
         // uploads/temp: included but also ignored → excluded
         $this->assertNotContains($this->tempAsset->id, $resultIds);

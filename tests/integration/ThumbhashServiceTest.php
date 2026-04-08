@@ -84,7 +84,10 @@ class ThumbhashServiceTest extends Unit
         $result = $this->service->generateHashPayloadFromFetchedFile($asset, $imagePath, false);
 
         $this->assertSame('ready', $result['status']);
+        $this->assertNull($result['reason']);
+        $this->assertNotNull($result['payload']);
         $this->assertNotEmpty($result['payload']['hash']);
+        $this->assertNull($result['payload']['dataUrl']);
         @unlink($imagePath);
     }
 
@@ -269,6 +272,16 @@ class ThumbhashServiceTest extends Unit
         $this->assertFalse($this->service->isAssetCurrent($this->imageAsset));
     }
 
+    public function testIsAssetCurrentReturnsFalseWhenNullMetadata(): void
+    {
+        // imageAsset has no file metadata (size/width/height/dateModified are null).
+        // Saving a non-null hash with null metadata must NOT make the asset current —
+        // the null-metadata guard must fire before the field comparisons reach null===null.
+        $this->service->saveHash($this->imageAsset->id, 'someHash');
+
+        $this->assertFalse($this->service->isAssetCurrent($this->imageAsset, false));
+    }
+
     public function testIsAssetCurrentReturnsFalseWithNoHash(): void
     {
         $this->service->saveHash($this->imageAsset->id, null);
@@ -287,19 +300,24 @@ class ThumbhashServiceTest extends Unit
         $this->assertTrue($this->service->isAssetCurrent($asset, false));
     }
 
-    public function testIsAssetCurrentReturnsFalseWhenMetadataDiffers(): void
+    public function testIsAssetCurrentReturnsFalseWhenSourceModifiedAtDiffers(): void
     {
-        $this->service->saveHash(
-            $this->imageAsset->id,
-            'someHash',
-            null,
-            9999999, // different timestamp
-            1,
-            1,
-            1,
-        );
+        $this->assertIsAssetCurrentFalseWhenStoredMetadataFieldDiffers('sourceModifiedAt');
+    }
 
-        $this->assertFalse($this->service->isAssetCurrent($this->imageAsset));
+    public function testIsAssetCurrentReturnsFalseWhenSourceSizeDiffers(): void
+    {
+        $this->assertIsAssetCurrentFalseWhenStoredMetadataFieldDiffers('sourceSize');
+    }
+
+    public function testIsAssetCurrentReturnsFalseWhenSourceWidthDiffers(): void
+    {
+        $this->assertIsAssetCurrentFalseWhenStoredMetadataFieldDiffers('sourceWidth');
+    }
+
+    public function testIsAssetCurrentReturnsFalseWhenSourceHeightDiffers(): void
+    {
+        $this->assertIsAssetCurrentFalseWhenStoredMetadataFieldDiffers('sourceHeight');
     }
 
     public function testIsAssetCurrentRequiresDataUrlWhenConfigured(): void
@@ -400,7 +418,7 @@ class ThumbhashServiceTest extends Unit
 
     public function testSaveHashForAssetStoresSourceMetadata(): void
     {
-        $asset = $this->imageAsset;
+        $asset = $this->createImageAssetWithFile('save-hash-for-asset-test.jpg');
 
         $this->service->saveHashForAsset($asset, 'testHash', 'testUrl');
 
@@ -409,6 +427,10 @@ class ThumbhashServiceTest extends Unit
         $this->assertNotNull($record);
         $this->assertSame('testHash', $record->hash);
         $this->assertSame('testUrl', $record->dataUrl);
+        $this->assertEquals($asset->dateModified->getTimestamp(), $record->sourceModifiedAt);
+        $this->assertEquals($asset->size, $record->sourceSize);
+        $this->assertEquals($asset->width, $record->sourceWidth);
+        $this->assertEquals($asset->height, $record->sourceHeight);
     }
 
     // ── generateHashPayloadFromFetchedFile ──────────────────────────
@@ -440,6 +462,8 @@ class ThumbhashServiceTest extends Unit
         );
 
         $this->assertSame('failed', $result['status']);
+        $this->assertSame('extract_failed', $result['reason']);
+        $this->assertNull($result['payload']);
     }
 
     // ── Helpers ─────────────────────────────────────────────────────
@@ -451,6 +475,27 @@ class ThumbhashServiceTest extends Unit
         foreach ($overrides as $key => $value) {
             $settings->$key = $value;
         }
+    }
+
+    private function assertIsAssetCurrentFalseWhenStoredMetadataFieldDiffers(string $field): void
+    {
+        $asset = $this->createImageAssetWithFile("current-mismatch-{$field}.jpg");
+        $this->service->saveHashForAsset($asset, 'someHash', null);
+
+        $record = ThumbhashRecord::findOne(['assetId' => $asset->id]);
+        $this->assertNotNull($record);
+        $this->assertNotNull($record->$field);
+
+        $record->$field = match ($field) {
+            'sourceModifiedAt' => ((int)$record->$field) + 60,
+            'sourceSize', 'sourceWidth', 'sourceHeight' => ((int)$record->$field) + 1,
+            default => throw new \InvalidArgumentException("Unsupported metadata field: {$field}"),
+        };
+
+        $saved = $record->save(false);
+        $this->assertTrue($saved);
+
+        $this->assertFalse($this->service->isAssetCurrent($asset, false));
     }
 
     private function createFixtures(): void
