@@ -1,3 +1,6 @@
 /vendor/
 .nocommit
 .github/skills/
+tests/_output/
+tests/_craft/storage/logs/
+tests/_support/_generated/
