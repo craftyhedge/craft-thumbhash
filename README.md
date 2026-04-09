@@ -1,5 +1,10 @@
 # ThumbHash for Craft CMS
 
+[![CI](https://github.com/craftyhedge/craft-thumbhash/actions/workflows/ci.yml/badge.svg)](https://github.com/craftyhedge/craft-thumbhash/actions/workflows/ci.yml)
+[![PHPStan Level 7](https://img.shields.io/badge/PHPStan-level%207-brightgreen?logo=php)](https://github.com/craftyhedge/craft-thumbhash/blob/master/phpstan.neon)
+[![PHP 8.2+](https://img.shields.io/badge/PHP-8.2%20|%208.3%20|%208.4-777BB4?logo=php&logoColor=white)](https://github.com/craftyhedge/craft-thumbhash)
+[![Craft 5](https://img.shields.io/badge/Craft%20CMS-5.0%2B-e5422b?logo=craft-cms&logoColor=white)](https://github.com/craftyhedge/craft-thumbhash)
+
 Automatic thumbhash placeholder generation for Craft CMS image assets.
 
 ## Table of Contents
