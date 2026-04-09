@@ -299,6 +299,8 @@ return [
 
 ## Performance & Scaling
 
+A [decoder benchmark tool](https://craftyhedge.github.io/craft-thumbhash/benchmark.html) is available for measuring client-side decode performance in your browser.
+
 ### Transform Source
 
 For the best server performance, it is recommended to use an external transform service like Imgix or Cloudflare Images.

@@ -1,5 +1,12 @@
 # Release Notes for ThumbHash
 
+## 2.0.2 - 2026-04-09
+
+### Added
+- PHP unit and integration test suites (Codeception).
+- JavaScript decoder test suite (Vitest).
+- Static analysis passing at PHPStan level 7.
+
 ## 2.0.1 - 2026-04-06
 
 ### Fixed
