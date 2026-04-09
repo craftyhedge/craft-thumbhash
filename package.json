@@ -1,0 +1,11 @@
+{
+    "devDependencies": {
+        "jsdom": "^26.0.0",
+        "terser": "^5.46.1",
+        "vitest": "^2.0.0"
+    },
+    "scripts": {
+        "build": "terser src/web/assets/dist/th-decoder.js --compress passes=2 --mangle --output src/web/assets/dist/th-decoder.min.js",
+        "test:js": "vitest run"
+    }
+}

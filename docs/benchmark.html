@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <title>ThumbHash — Browser Benchmark</title>
+        <style>
+        body {
+            font-family: system-ui, sans-serif;
+            max-width: 820px;
+            margin: 2rem auto;
+            padding: 0 1.25rem;
+            color: #222;
+            background: #fafafa;
+        }
+        h1 { margin-bottom: 0.2rem; }
+        .note { color: #888; font-size: 0.875rem; margin-top: 0; }
+        section { margin: 1.5rem 0; }
+        h2 {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: #888;
+            margin-bottom: 0.5rem;
+        }
+
+        #config-display {
+            font-family: monospace;
+            font-size: 0.82rem;
+            line-height: 1.8;
+            background: #f2f2f2;
+            border-radius: 6px;
+            padding: 0.75rem 1rem;
+            white-space: pre;
+        }
+
+        #previews { display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end; }
+        .preview-item { text-align: center; font-size: 0.72rem; color: #aaa; }
+        .preview-item img {
+            display: block;
+            width: 112px;
+            height: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        #controls { display: flex; gap: 0.75rem; align-items: center; margin: 1.5rem 0 0.75rem; }
+
+        #results { position: relative; }
+        #copy-btn {
+            position: absolute;
+            top: 0;
+            right: 0;
+            font-size: 0.78rem;
+            padding: 0.3rem 0.8rem;
+        }
+        button {
+            padding: 0.5rem 1.2rem;
+            font-size: 0.875rem;
+            border-radius: 6px;
+            border: 1px solid #bbb;
+            background: #fff;
+            cursor: pointer;
+            transition: background 0.1s;
+        }
+        button:hover:not(:disabled) { background: #f0f0f0; }
+        button:disabled { opacity: 0.35; cursor: default; }
+        #run-btn { background: #0066cc; color: #fff; border-color: #0055aa; font-weight: 600; }
+        #run-btn:hover:not(:disabled) { background: #0052a3; }
+
+        #status { font-size: 0.875rem; color: #555; min-height: 1.4rem; }
+        #progress-bar-wrap { width: 100%; height: 4px; background: #e0e0e0; border-radius: 2px; margin-top: 0.5rem; display: none; }
+        #progress-bar { height: 100%; width: 0; background: #0066cc; border-radius: 2px; transition: width 0.2s; }
+
+        .result-block {
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 0.875rem 1.1rem;
+            margin: 0.75rem 0;
+        }
+        .result-block h3 { margin: 0 0 0.4rem; font-size: 0.9rem; }
+        .round-data { font-family: monospace; font-size: 0.78rem; color: #999; margin-bottom: 0.6rem; }
+
+        .summary { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; }
+        .stat {
+            background: #f7f7f7;
+            border-radius: 5px;
+            padding: 0.5rem 0.75rem;
+        }
+        .stat .label { font-size: 0.7rem; color: #aaa; margin-bottom: 0.1rem; }
+        .stat .value { font-family: monospace; font-size: 1.05rem; font-weight: 700; }
+        .stat .unit { font-size: 0.7rem; font-weight: 400; color: #888; }
+
+        #copy-output {
+            font-family: monospace;
+            font-size: 0.78rem;
+            white-space: pre;
+            background: #1a1a1a;
+            color: #88ee88;
+            padding: 1rem 1.25rem;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin-top: 0.75rem;
+            display: none;
+        }
+
+        .error { color: #cc3333; font-size: 0.875rem; }
+    </style>
+    </head>
+    <body>
+
+        <h1>ThumbHash Decoder &mdash; Browser Benchmark</h1>
+
+        <section>
+            <h2>Configuration</h2>
+            <div id="config-display"></div>
+        </section>
+
+        <section>
+            <h2>Decoder sanity check</h2>
+            <p style="font-size:0.825rem;color:#888;margin:0 0 0.6rem">
+                Previews render after the first benchmark run so the decode cache
+                starts completely cold.
+            </p>
+            <div id="previews"></div>
+        </section>
+
+        <section>
+            <div id="controls">
+                <button id="run-btn">&#9654; Run Benchmark</button>
+            </div>
+            <div id="status">Ready.</div>
+            <div id="progress-bar-wrap"><div id="progress-bar"></div></div>
+        </section>
+
+        <section id="results" hidden>
+            <h2>Results</h2>
+            <button id="copy-btn" disabled>Copy Results</button>
+            <div id="results-content"></div>
+            <pre id="copy-output"></pre>
+        </section>
+
+        <!-- Decoder source. Path is relative to this file: tests/js/ -> root -> src/... -->
+        <script src="th-decoder.js"></script>
+        <script>
+(function () {
+    'use strict';
+
+    // ---- Configuration -------------------------------------------------------
+
+    var ROUNDS             = 10;
+    var WARMUP_CALLS       = 500;
+    var JIT_WARMUP_CALLS   = 5000;   // pre-run global warmup to saturate the JIT before any timing
+    var UNCACHED_PER_ROUND = 2000;   // genuine cache-miss calls per round
+    var CACHED_PER_ROUND   = 200000; // cache-hit calls per round (× ROUNDS = 1 000 000 total)
+
+    // Hash pool. Add your own base64 hashes here to widen the test set.
+    // Aspect ratios are intentionally varied when calling toDataURL() so the
+    // decoder runs the full crop+resize path, not just the cache lookup.
+    var HASHES = [
+        'nfcJFgTk2vhJiqaGZpdYlYVnqHCFCEY',  // landscape ~4:3
+        '3wcKNxqAh4eAiIiIiHiIiIiHCAiIgI8I',  // portrait-ish
+    ];
+
+    // Fixed key used for all cached measurements.
+    var CACHED_HASH  = HASHES[0];
+    var CACHED_RATIO = 16 / 9;
+
+    // ---- Utilities -----------------------------------------------------------
+
+    function yieldToBrowser() {
+        return new Promise(function (resolve) { setTimeout(resolve, 0); });
+    }
+
+    function median(arr) {
+        var sorted = arr.slice().sort(function (a, b) { return a - b; });
+        var m = Math.floor(sorted.length / 2);
+        return sorted.length % 2 ? sorted[m] : (sorted[m - 1] + sorted[m]) / 2;
+    }
+
+    function getBrowserInfo() {
+        if (navigator.userAgentData && navigator.userAgentData.brands) {
+            var brands = navigator.userAgentData.brands;
+            // Prefer a named brand over the generic "Chromium" entry;
+            // skip the intentionally-garbled "Not A Brand" sentinel.
+            var significant = brands.filter(function (b) {
+                return !/not.?a.?brand/i.test(b.brand) && b.brand !== 'Chromium';
+            });
+            var pick = significant.length ? significant[0]
+                     : brands.find(function (b) { return b.brand === 'Chromium'; });
+            if (pick) {
+                return pick.brand + ' ' + pick.version
+                    + (navigator.userAgentData.mobile ? ' (mobile)' : '');
+            }
+        }
+        // Fallback: extract the most specific token from the UA string.
+        var ua = navigator.userAgent;
+        var m = ua.match(/(Edg(?:e|A|iOS)|OPR|Firefox|Chrome|Safari)\/([0-9]+)/);
+        if (m) {
+            var name = { Edg: 'Edge', EdgeA: 'Edge (Android)', EdgiOS: 'Edge (iOS)', OPR: 'Opera' }[m[1]] || m[1];
+            return name + ' ' + m[2];
+        }
+        return ua;
+    }
+
+    // Monotonically increasing sequence counter shared across all uncached calls
+    // (warmup and measured, all rounds, all benchmark runs on this page).
+    // Never resets so subsequent runs on the same page load don't replay cache keys.
+    var _seq = 0;
+
+    // If the page was reloaded via the "Reload & Re-run" button, auto-start.
+    if (sessionStorage.getItem('th-autorun')) {
+        sessionStorage.removeItem('th-autorun');
+        window.addEventListener('load', function () { runBenchmark(); });
+    }
+
+    // ---- Benchmark phases ----------------------------------------------------
+
+    function runUncachedRound() {
+        // Warmup runs first, consuming the lower _seq values. The timed section
+        // then uses the next slice of values, so warmup and measured calls never
+        // share a cache key and all measured calls are genuine cache misses.
+        for (var i = 0; i < WARMUP_CALLS; i++) {
+            var n = _seq++;
+            window.thumbhash.toDataURL(HASHES[n % HASHES.length], 1 + n * 0.00001);
+        }
+
+        var t0 = performance.now();
+        for (var j = 0; j < UNCACHED_PER_ROUND; j++) {
+            var n = _seq++;
+            window.thumbhash.toDataURL(HASHES[n % HASHES.length], 1 + n * 0.00001);
+        }
+        return (performance.now() - t0) * 1000 / UNCACHED_PER_ROUND; // us/call
+    }
+
+    function runCachedRound() {
+        // Prime the cache entry then warm the branch predictor / JIT.
+        window.thumbhash.toDataURL(CACHED_HASH, CACHED_RATIO);
+        for (var i = 0; i < WARMUP_CALLS; i++) {
+            window.thumbhash.toDataURL(CACHED_HASH, CACHED_RATIO);
+        }
+
+        var t0 = performance.now();
+        for (var j = 0; j < CACHED_PER_ROUND; j++) {
+            window.thumbhash.toDataURL(CACHED_HASH, CACHED_RATIO);
+        }
+        return (performance.now() - t0) * 1000 / CACHED_PER_ROUND; // us/call
+    }
+
+    // ---- UI refs -------------------------------------------------------------
+
+    var runBtn    = document.getElementById('run-btn');
+    var copyBtn   = document.getElementById('copy-btn');
+    var statusEl  = document.getElementById('status');
+    var progressWrap = document.getElementById('progress-bar-wrap');
+    var progressBar  = document.getElementById('progress-bar');
+    var resultsEl = document.getElementById('results');
+    var contentEl = document.getElementById('results-content');
+    var copyOut   = document.getElementById('copy-output');
+
+    function setStatus(msg) { statusEl.textContent = msg; }
+    function setProgress(done, total) {
+        progressBar.style.width = Math.round(done / total * 100) + '%';
+    }
+
+    // ---- Init: config display ------------------------------------------------
+
+    var totalCached   = ROUNDS * CACHED_PER_ROUND;
+    var totalUncached = ROUNDS * UNCACHED_PER_ROUND;
+
+    document.getElementById('config-display').textContent = [
+        'rounds:                 ' + ROUNDS,
+        'jit warmup calls:       ' + JIT_WARMUP_CALLS.toLocaleString() + ' (once per run, before timing)',
+        'warmup calls per phase: ' + WARMUP_CALLS,
+        'uncached calls / round: ' + UNCACHED_PER_ROUND.toLocaleString() + '   (total: ' + totalUncached.toLocaleString() + ')',
+        'cached calls / round:   ' + CACHED_PER_ROUND.toLocaleString() + ' (total: ' + totalCached.toLocaleString() + ')',
+        'timing unit:            microseconds per call (us/call)',
+    ].join('\n');
+
+    // ---- Init: sanity check (existence only — no toDataURL calls yet) ----------
+    // Previews are rendered after the first run to keep the decode cache cold.
+
+    if (!window.thumbhash || typeof window.thumbhash.toDataURL !== 'function') {
+        document.getElementById('previews').innerHTML =
+            '<span class="error">&#9888; window.thumbhash not found &mdash; check the &lt;script src&gt; path.</span>';
+        runBtn.disabled = true;
+    } else {
+        document.getElementById('previews').innerHTML =
+            '<span style="font-size:0.8rem;color:#bbb">Will appear after first run.</span>';
+    }
+
+    // ---- Preview renderer (called post-run so hashes start cold) ---------------
+
+    var previewsRendered = false;
+
+    function renderPreviews() {
+        if (previewsRendered) return;
+        previewsRendered = true;
+        var previewsEl = document.getElementById('previews');
+        previewsEl.innerHTML = '';
+        HASHES.forEach(function (hash, i) {
+            var ratios = [1, 4 / 3, 16 / 9];
+            ratios.forEach(function (r) {
+                var img = document.createElement('img');
+                img.src = window.thumbhash.toDataURL(hash, r);
+                var wrap = document.createElement('div');
+                wrap.className = 'preview-item';
+                wrap.appendChild(img);
+                var lbl = document.createElement('div');
+                lbl.textContent = 'hash ' + (i + 1) + '  ' + (Math.round(r * 100) / 100).toFixed(2);
+                wrap.appendChild(lbl);
+                previewsEl.appendChild(wrap);
+            });
+        });
+    }
+
+    // ---- Run -----------------------------------------------------------------
+
+    async function runBenchmark() {
+        runBtn.disabled = true;
+        copyBtn.disabled = true;
+        resultsEl.hidden = true;
+        contentEl.innerHTML = '';
+        copyOut.style.display = 'none';
+        progressWrap.style.display = 'block';
+        setProgress(0, ROUNDS * 2);
+
+        // Global JIT warmup: run both code paths enough times to trigger background
+        // Maglev/TurboFan compilation, then yield the main thread so those background
+        // threads can finish before timing starts. Without the yield AFTER warmup,
+        // compilation completes during round 1 and later re-runs appear faster.
+        setStatus('Warming up JIT\u2026');
+        await yieldToBrowser();
+        for (var w = 0; w < JIT_WARMUP_CALLS; w++) {
+            var n = _seq++;
+            window.thumbhash.toDataURL(HASHES[n % HASHES.length], 1 + n * 0.00001);
+        }
+        for (var w = 0; w < JIT_WARMUP_CALLS; w++) {
+            window.thumbhash.toDataURL(CACHED_HASH, CACHED_RATIO);
+        }
+        // Yield again to let background compilation finish before round 1 is timed.
+        setStatus('Waiting for compiler\u2026');
+        await yieldToBrowser();
+
+        var uncachedRounds = [];
+        var cachedRounds   = [];
+        var totalPhases    = ROUNDS * 2;
+        var phasesDone     = 0;
+
+        for (var round = 0; round < ROUNDS; round++) {
+            setStatus('Round ' + (round + 1) + ' / ' + ROUNDS + '  \u2014 uncached\u2026');
+            await yieldToBrowser();
+            uncachedRounds.push(runUncachedRound());
+            setProgress(++phasesDone, totalPhases);
+
+            setStatus('Round ' + (round + 1) + ' / ' + ROUNDS + '  \u2014 cached\u2026');
+            await yieldToBrowser();
+            cachedRounds.push(runCachedRound());
+            setProgress(++phasesDone, totalPhases);
+        }
+
+        setStatus('Done.');
+        progressWrap.style.display = 'none';
+
+        var uncachedMed    = median(uncachedRounds);
+        var cachedMed      = median(cachedRounds);
+        var uncachedPerSec = Math.round(1e6 / uncachedMed);
+        var cachedPerSec   = Math.round(1e6 / cachedMed);
+
+        // ---- Render results --------------------------------------------------
+
+        function roundList(arr, dp) {
+            return arr.map(function (v) { return v.toFixed(dp); }).join(', ') + ' us/call';
+        }
+
+        var html = '';
+
+        html += '<div class="result-block">';
+        html += '<h3>Uncached &nbsp;<small style="font-weight:400;color:#aaa">';
+        html += UNCACHED_PER_ROUND.toLocaleString() + ' unique ratio calls / round &mdash; all cache misses';
+        html += '</small></h3>';
+        html += '<div class="round-data">rounds: ' + roundList(uncachedRounds, 2) + '</div>';
+        html += '<div class="summary">';
+        html += '<div class="stat"><div class="label">Median</div><div class="value">' + uncachedMed.toFixed(2) + ' <span class="unit">us/call</span></div></div>';
+        html += '<div class="stat"><div class="label">Median</div><div class="value">' + (uncachedMed / 1000).toFixed(4) + ' <span class="unit">ms/call</span></div></div>';
+        html += '<div class="stat"><div class="label">Throughput</div><div class="value">' + uncachedPerSec.toLocaleString() + ' <span class="unit">calls/sec</span></div></div>';
+        html += '</div></div>';
+
+        html += '<div class="result-block">';
+        html += '<h3>Cached &nbsp;<small style="font-weight:400;color:#aaa">';
+        html += CACHED_PER_ROUND.toLocaleString() + ' calls / round &mdash; all cache hits &mdash; ' + totalCached.toLocaleString() + ' total';
+        html += '</small></h3>';
+        html += '<div class="round-data">rounds: ' + roundList(cachedRounds, 3) + '</div>';
+        html += '<div class="summary">';
+        html += '<div class="stat"><div class="label">Median</div><div class="value">' + cachedMed.toFixed(3) + ' <span class="unit">us/call</span></div></div>';
+        html += '<div class="stat"><div class="label">Median</div><div class="value">' + (cachedMed / 1000).toFixed(6) + ' <span class="unit">ms/call</span></div></div>';
+        html += '<div class="stat"><div class="label">Throughput</div><div class="value">' + cachedPerSec.toLocaleString() + ' <span class="unit">calls/sec</span></div></div>';
+        html += '</div></div>';
+
+        contentEl.innerHTML = html;
+        resultsEl.hidden = false;
+
+        // ---- Copy text -------------------------------------------------------
+
+        var copyText = [
+            'ThumbHash Decoder — Browser Benchmark',
+            '======================================',
+            'date:     ' + new Date().toISOString(),
+            'browser:  ' + getBrowserInfo(),
+            '',
+            'config',
+            '  rounds:              ' + ROUNDS,
+            '  warmup/phase:        ' + WARMUP_CALLS,
+            '  uncached calls/round:' + UNCACHED_PER_ROUND,
+            '  cached calls/round:  ' + CACHED_PER_ROUND,
+            '',
+            'uncached (cache-miss decode path)',
+            '  rounds:  ' + uncachedRounds.map(function (v) { return v.toFixed(2); }).join(', ') + ' us/call',
+            '  median:  ' + uncachedMed.toFixed(2) + ' us/call  (' + (uncachedMed / 1000).toFixed(4) + ' ms/call)  (' + uncachedPerSec.toLocaleString() + ' calls/sec)',
+            '',
+            'cached (cache-hit lookup path)',
+            '  rounds:  ' + cachedRounds.map(function (v) { return v.toFixed(3); }).join(', ') + ' us/call',
+            '  median:  ' + cachedMed.toFixed(3) + ' us/call  (' + (cachedMed / 1000).toFixed(6) + ' ms/call)  (' + cachedPerSec.toLocaleString() + ' calls/sec)',
+        ].join('\n');
+
+        copyOut.textContent = copyText;
+        copyOut.style.display = 'block';
+
+        copyBtn.disabled = false;
+        copyBtn.textContent = 'Copy Results';
+        copyBtn.onclick = function () {
+            navigator.clipboard.writeText(copyText).then(function () {
+                copyBtn.textContent = 'Copied!';
+                setTimeout(function () { copyBtn.textContent = 'Copy Results'; }, 2000);
+            }).catch(function () {
+                // clipboard API blocked (e.g. some file:// origins) — select the pre block instead
+                var range = document.createRange();
+                range.selectNodeContents(copyOut);
+                window.getSelection().removeAllRanges();
+                window.getSelection().addRange(range);
+            });
+        };
+
+        renderPreviews();
+        runBtn.disabled = false;
+        runBtn.textContent = '\u21ba Reload \u0026 Re-run';
+        runBtn.onclick = function () {
+            sessionStorage.setItem('th-autorun', '1');
+            location.reload();
+        };
+    }
+
+    runBtn.onclick = runBenchmark;
+
+})();
+</script>
+
+    </body>
+</html>

@@ -1,4 +1,5 @@
 /vendor/
+/node_modules/
 .nocommit
 .github/skills/
 tests/_output/

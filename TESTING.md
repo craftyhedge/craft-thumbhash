@@ -5,6 +5,7 @@
 - PHP 8.2+ with `gd` extension (and optionally `imagick`)
 - [Docker](https://www.docker.com/) (for the test database)
 - [Composer](https://getcomposer.org/)
+- Node.js 18+ and npm (for JS decoder tests)
 
 ## Setup
 
@@ -12,6 +13,7 @@
 
 ```sh
 composer install
+npm install
 ```
 
 ### 2. Start the test database
@@ -59,6 +61,20 @@ Run all suites (unit + integration):
 vendor/bin/codecept run
 ```
 
+Run JavaScript decoder tests:
+
+```sh
+npm run test:js
+```
+
+Run only the decoder spec:
+
+```sh
+npm run test:js -- tests/js/decoder.test.js
+```
+
+The decoder JS tests cover public API behavior, DOM boot behavior, MutationObserver behavior, and robust output validation (including PNG signature/dimensions and malformed-but-base64 payload rejection).
+
 Run a single suite:
 
 ```sh
@@ -71,6 +87,17 @@ Run a specific test class:
 ```sh
 vendor/bin/codecept run integration ThumbhashServiceTest
 ```
+
+## JS Mutation Validation
+
+To confirm decoder tests fail when key behaviors are intentionally broken:
+
+```sh
+npm run validate:js
+```
+
+This runs targeted mutations against `src/web/assets/dist/th-decoder.js` and verifies the test suite kills each mutation.
+
 
 ## Static Analysis
 
